@@ -4147,8 +4147,8 @@ const github = __webpack_require__(469);
             const issueInfo = github.context.issue;
             // Find the project specified by the user
             const projects = yield octokit.paginate(octokit.projects.listForRepo.endpoint.merge({
-                owner: 'jason0x43',
-                repo: 'hacs-hubitat'
+                owner: issueInfo.owner,
+                repo: issueInfo.repo
             }));
             const project = projects.find(proj => proj.name.toLowerCase() === projectName.toLowerCase());
             // Find the column specified by the user

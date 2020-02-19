@@ -13,8 +13,8 @@ import { Octokit } from '@octokit/rest';
     // Find the project specified by the user
     const projects = await octokit.paginate(
       octokit.projects.listForRepo.endpoint.merge({
-        owner: 'jason0x43',
-        repo: 'hacs-hubitat'
+        owner: issueInfo.owner,
+        repo: issueInfo.repo
       })
     );
     const project = projects.find(
