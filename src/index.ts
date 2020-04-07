@@ -10,6 +10,8 @@ import { Octokit } from '@octokit/rest';
     const octokit = (new github.GitHub(token)) as unknown as Octokit;
     const issueInfo = github.context.issue;
 
+    console.log(`context: ${JSON.stringify(github.context, null, '  ')}`);
+
     // Find the project specified by the user
     const projects = await octokit.paginate(
       octokit.projects.listForRepo.endpoint.merge({
