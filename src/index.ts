@@ -1,16 +1,16 @@
-import * as core from '@actions/core';
-import * as github from '@actions/github';
+import { getInput } from '@actions/core';
+import { GitHub, context } from '@actions/github';
 import { Octokit } from '@octokit/rest';
 
 (async function main() {
   try {
-    const token = core.getInput('github-token');
-    const projectName = core.getInput('project');
-    const columnName = core.getInput('column');
-    const octokit = (new github.GitHub(token)) as unknown as Octokit;
-    const issueInfo = github.context.issue;
+    const token = getInput('github-token');
+    const projectName = getInput('project');
+    const columnName = getInput('column');
+    const octokit = (new GitHub(token)) as unknown as Octokit;
+    const issueInfo = context.issue;
 
-    console.log(`context: ${JSON.stringify(github.context, null, '  ')}`);
+    console.log(`context: ${JSON.stringify(context, null, '  ')}`);
 
     // Find the project specified by the user
     const projects = await octokit.paginate(
