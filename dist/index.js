@@ -8546,6 +8546,7 @@ class Issue {
       }
     `;
             const { resource } = yield this.octokit.graphql(query);
+            console.log(`loaded resource: ${JSON.stringify(resource)}`);
             const cards = (_a = resource.projectCards.nodes) !== null && _a !== void 0 ? _a : [];
             this.issueCard = cards.find((card) => card.project.name === this.projectName);
             this.cardColumn = resource.projectCards.column;
@@ -8754,6 +8755,7 @@ function main() {
         const octokit = new github.GitHub(config.token);
         const { projectName } = config;
         const issue = new Issue(octokit, github.context, projectName);
+        yield issue.load();
         switch (action) {
             case Action.IssueOpened:
                 if (issue.isAssigned() && config.workingColumnName) {

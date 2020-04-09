@@ -16,7 +16,13 @@
     "@octokit/action": "~2.1.0",
     "@octokit/webhooks": "~7.1.2",
     "@zeit/ncc": "~0.22.1",
+    "husky": "~4.2.3",
     "tslib": "~1.11.1",
     "typescript": "~3.8.3"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run build"
+    }
   }
 }
