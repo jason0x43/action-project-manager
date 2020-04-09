@@ -17,175 +17,100 @@
  * - Only issues go on the board, not PRs. PRs will be accessible through issue
  *   links.
  */
-import * as core from '@actions/core';
-import * as github from '@actions/github';
-import { Octokit } from '@octokit/action';
-import * as Webhooks from '@octokit/webhooks';
-
-// let columns: Octokit.ProjectsListColumnsResponseItem[];
-// let projects: Octokit.ProjectsListForRepoResponseItem[];
-// let octokit: Octokit;
-
-enum Action {
-  PrOpened = 1,
-  IssueOpened,
-  IssueAssignment,
-  IssueClosed,
-  IssueReopened,
-  IssueLabeling
-}
-
-// async function getColumn(projectId: number, name: string) {
-//   if (!columns) {
-//     // Find the column specified by the user
-//     columns = await octokit.paginate(
-//       octokit.projects.listColumns.endpoint.merge({
-//         project_id: projectId
-//       })
-//     );
-//   }
-
-//   return columns.find(
-//     col => col.name.toLowerCase() === name.toLowerCase()
-//   );
-// }
-
-// async function getProject(name: string, owner: string, repo: string) {
-//   if (!projects) {
-//     // Find the project specified by the user
-//     projects = await octokit.paginate(
-//       octokit.projects.listForRepo.endpoint.merge({ owner, repo }));
-//   }
-//   return projects.find(
-//     proj => proj.name.toLowerCase() === name.toLowerCase()
-//   );
-// }
+import { info } from '@actions/core';
+import { GitHub, context } from '@actions/github';
+import { Issue } from './issue';
+import { Action } from './types';
+import { getAction, getConfig } from './init';
 
 async function main() {
-  const event = github.context.eventName;
-  let action: Action;
-
-  if (event === 'issues') {
-    const payload = github.context.payload as Webhooks.WebhookPayloadIssues;
-    switch (payload.action) {
-      case 'opened':
-        action = Action.IssueOpened;
-        break;
-      case 'closed':
-        action = Action.IssueClosed;
-        break;
-      case 'reopened':
-        action = Action.IssueReopened;
-        break;
-      case 'assigned':
-      case 'unassigned':
-        action = Action.IssueAssignment;
-        break;
-      case 'labeled':
-      case 'unlabeled':
-        action = Action.IssueLabeling;
-        break;
-    }
-    core.info(`Handling ${payload.action} for issue ${payload.issue.number}`);
-  } else if (event === 'pull_request') {
-    const payload = github.context.payload as Webhooks.WebhookPayloadPullRequest;
-    switch (payload.action) {
-      case 'opened':
-        action = Action.PrOpened;
-        break;
-    }
-    core.info(`Handling ${payload.action} for issue ${payload.pull_request.number}`);
-  }
-
-  const { owner, repo } = github.context.issue;
-
+  const action = getAction(context);
   if (!action) {
-    core.info(`Skipping event ${event}`);
+    info(`Skipping event ${event}`);
     return;
   }
 
-  const projectName = core.getInput('project');
-  // Column for new issues
-  const triageColumnName = core.getInput('triage-column');
-  // Label that will be applied to triage issues
-  const triageLabel = core.getInput('triage-label');
-  // Column for "ready" issues
-  const todoColumnName = core.getInput('todo-column');
-  // Column for "in-progress" issues
-  const workingColumnName = core.getInput('working-column');
-  // Column for completed issues
-  const doneColumnName = core.getInput('done-column');
-  const takeAnyReady = core.getInput('take-any-ready');
-
-  // This will automatically authenticate with a GITHUB_TOKEN value provided
-  // via `with` or `env`
-  const octokit = new Octokit;
+  const config = getConfig();
+  const octokit = new GitHub(config.token);
+  const { projectName } = config;
+  const issue = new Issue(octokit, context, projectName);
 
   switch (action) {
     case Action.IssueOpened:
-      break;
-    case Action.IssueClosed:
-      break;
-    case Action.IssueReopened:
-      break;
-    case Action.IssueAssignment:
-      break;
-    case Action.IssueLabeling:
-      break;
-    case Action.PrOpened:
-      break;
-  }
+      if (issue.isAssigned() && config.workingColumnName) {
+        // If the issue is already assigned, move it to the working column
+        await issue.moveToColumn(config.workingColumnName);
+      } else if (
+        !(
+          config.triagedLabels &&
+          config.triagedLabels.some((label) => issue.hasLabel(label))
+        )
+      ) {
+        // If we have a triage label, apply it to new issues
+        if (config.triageLabel) {
+          await issue.addLabel(config.triageLabel);
+        }
 
-  const project = await octokit.graphql(`
-    {
-      repository(owner: $owner, name: $repo) {
+        // If we have a triage column, put new issues in it
+        if (config.triageColumnName) {
+          await issue.moveToColumn(config.triageColumnName);
+        }
       }
-    }
-  `, {
-    owner,
-    repo
-  });
-  const column = await getColumn(project.id, columnName);
-
-  // Check for an existing card for the issue
-  let existing: { id: number };
-  const issueTest = new RegExp(`/issues/${issueInfo.number}$`);
-  for (const col of columns) {
-    const cards = await octokit.paginate(
-      octokit.projects.listCards.endpoint.merge({
-        column_id: col.id
-      })
-    );
-    const card = cards.find(card => issueTest.test(card.content_url));
-    if (card) {
-      existing = card;
       break;
-    }
-  }
 
-  if (existing) {
-    // A card already exists -- move it
-    await octokit.projects.moveCard({
-      card_id: existing.id,
-      column_id: column.id,
-      position: 'top'
-    });
-  } else {
-    const issue = (
-      await octokit.issues.get({
-        owner: issueInfo.owner,
-        repo: issueInfo.repo,
-        issue_number: issueInfo.number
-      })
-    ).data;
+    case Action.IssueClosed:
+      // If an issue is closed, it's done
+      if (config.doneColumnName) {
+        await issue.moveToColumn(config.doneColumnName);
+      }
+      break;
 
-    // A card doesn't exist -- create it
-    await octokit.projects.createCard({
-      column_id: column.id,
-      content_id: issue.id,
-      content_type: 'Issue'
-    });
+    case Action.IssueReopened:
+      // If an issue is reopened, it's back in progress
+      if (
+        config.workingColumnName &&
+        config.doneColumnName &&
+        issue.isInColumn(config.doneColumnName)
+      ) {
+        await issue.moveToColumn(config.workingColumnName);
+      }
+      break;
+
+    case Action.IssueAssignment:
+      // If a triaged or todo issue is assigned, it's in progress
+      if (issue.isAssigned()) {
+        if (
+          config.workingColumnName &&
+          config.todoColumnName &&
+          issue.isInColumn(config.todoColumnName)
+        ) {
+          await issue.moveToColumn(config.workingColumnName);
+        }
+      } else {
+        if (
+          config.todoColumnName &&
+          config.workingColumnName &&
+          issue.isInColumn(config.workingColumnName)
+        ) {
+          await issue.moveToColumn(config.todoColumnName);
+        }
+      }
+      break;
+
+    case Action.IssueLabeling:
+      if (config.triageLabel) {
+        if (issue.hasLabel(config.triageLabel)) {
+          if (config.triageColumnName && !issue.isInColumn(config.triageColumnName)) {
+            await issue.moveToColumn(config.triageColumnName);
+          }
+        } else {
+          if (config.todoColumnName && !issue.isInColumn(config.todoColumnName)) {
+            await issue.moveToColumn(config.todoColumnName);
+          }
+        }
+      }
+      break;
   }
 }
 
-main().catch(error => console.error(error));
+main().catch((error) => console.error(error));
