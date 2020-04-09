@@ -36,7 +36,7 @@ async function main() {
   const { projectName } = config;
 
   if (actionInfo.actionType === ActionType.Issue) {
-    info(`Processing an issue event`);
+    info(`Processing an issue event: ${context.payload.action}`);
 
     const issue = await loadIssue(
       octokit,
@@ -153,7 +153,7 @@ async function main() {
         break;
     }
   } else {
-    info('Processing a PR event');
+    info(`Processing a PR event: ${context.payload.action}`);
 
     const pr = await loadPr(octokit, context.payload.pull_request!.html_url!);
 

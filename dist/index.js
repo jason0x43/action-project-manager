@@ -1896,7 +1896,7 @@ function main() {
         const octokit = new github.GitHub(config.token);
         const { projectName } = config;
         if (actionInfo.actionType === ActionType.Issue) {
-            Object(core.info)(`Processing an issue event`);
+            Object(core.info)(`Processing an issue event: ${github.context.payload.action}`);
             const issue = yield loadIssue(octokit, github.context.payload.issue.html_url, projectName);
             switch (actionInfo.action) {
                 case Action.IssueOpened:
@@ -1991,7 +1991,7 @@ function main() {
             }
         }
         else {
-            Object(core.info)('Processing a PR event');
+            Object(core.info)(`Processing a PR event: ${github.context.payload.action}`);
             const pr = yield loadPr(octokit, github.context.payload.pull_request.html_url);
             switch (actionInfo.action) {
                 case Action.PrOpened:
