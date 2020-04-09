@@ -2,19 +2,9 @@ name: Update Issue
 
 on:
   issues:
-    types:
-      - opened
-      - closed
-      - reopened
-      - assigned
-      - unassigned
-      - labeled
-      - unlabeled
+  # Note that PR events won't run for PRs with merge conflicts
   pull_request:
-    types:
-      - opened
-      - reopened
-      - closed
+    types: [opened, reopened, closed]
 
 jobs:
   update-issue:
