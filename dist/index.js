@@ -1797,16 +1797,21 @@ function getAction(context) {
         switch (payload.action) {
             case 'opened':
                 action = Action.IssueOpened;
+                break;
             case 'closed':
                 action = Action.IssueClosed;
+                break;
             case 'reopened':
                 action = Action.IssueReopened;
+                break;
             case 'assigned':
             case 'unassigned':
                 action = Action.IssueAssignment;
+                break;
             case 'labeled':
             case 'unlabeled':
                 action = Action.IssueLabeling;
+                break;
         }
     }
     else if (event === 'pull_request') {
@@ -1817,8 +1822,10 @@ function getAction(context) {
             case 'opened':
             case 'reopened':
                 action = Action.PrOpened;
+                break;
             case 'closed':
                 action = Action.PrClosed;
+                break;
         }
     }
     return { action, actionType };
