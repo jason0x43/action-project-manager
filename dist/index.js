@@ -1806,7 +1806,9 @@ function getAction(context) {
         actionType = ActionType.PullRequest;
         const payload = context.payload;
         switch (payload.action) {
+            // Treat opened and reopened PRs the same
             case 'opened':
+            case 'reopened':
                 action = Action.PrOpened;
             case 'closed':
                 action = Action.PrClosed;

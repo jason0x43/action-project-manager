@@ -28,7 +28,9 @@ export function getAction(context: Context): { action?: Action, actionType?: Act
     actionType = ActionType.PullRequest;
     const payload = context.payload as WebhookPayloadPullRequest;
     switch (payload.action) {
+      // Treat opened and reopened PRs the same
       case 'opened':
+      case 'reopened':
         action = Action.PrOpened;
       case 'closed':
         action = Action.PrClosed;
