@@ -7,5 +7,21 @@ export enum Action {
   IssueAssignment,
   IssueClosed,
   IssueReopened,
-  IssueLabeling
+  IssueLabeling,
+  PrOpened,
+  PrClosed
+}
+
+export enum ActionType {
+  Issue = 1,
+  PullRequest
+}
+
+
+export interface Entity {
+  id: string;
+}
+
+export interface NamedEntity extends Entity {
+  name: string;
 }

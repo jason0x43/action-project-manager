@@ -34,7 +34,7 @@ module.exports =
 /******/ 	// the startup function
 /******/ 	function startup() {
 /******/ 		// Load entry module and return exports
-/******/ 		return __webpack_require__(677);
+/******/ 		return __webpack_require__(134);
 /******/ 	};
 /******/ 	// initialize runtime
 /******/ 	runtime(__webpack_require__);
@@ -1441,6 +1441,618 @@ module.exports = uniq;
 /***/ (function(module) {
 
 module.exports = require("child_process");
+
+/***/ }),
+
+/***/ 134:
+/***/ (function(__unusedmodule, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+
+// EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
+var core = __webpack_require__(470);
+
+// EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
+var github = __webpack_require__(469);
+
+// CONCATENATED MODULE: ./src/issue.ts
+var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+class Issue {
+    constructor(octokit, url, projectName) {
+        this.octokit = octokit;
+        this.url = url;
+        this.projectName = projectName;
+        this.id = '';
+        this.number = 0;
+        this.labels = [];
+        this.assignees = [];
+        this.projectColumns = [];
+        this.repoLabels = [];
+        this.linkedPrs = [];
+    }
+    /**
+     * Load data for an issue and its containing project and repo
+     */
+    load() {
+        var _a;
+        return __awaiter(this, void 0, void 0, function* () {
+            const query = `
+      {
+        resource(url: "${this.url}") {
+          ... on Issue {
+            id
+            number
+            assignees(first: 1) {
+              nodes {
+                name
+                id
+              }
+            }
+            labels(first: 10) {
+              nodes {
+                name
+                id
+              }
+            }
+            projectCards {
+              nodes {
+                id
+                column {
+                  name
+                  id
+                }
+                project {
+                  name
+                  id
+                }
+              }
+            },
+            repository {
+              projects(search: "${this.projectName}", first: 10, states: [OPEN]) {
+                nodes {
+                  name
+                  id
+                  columns(first: 10) {
+                    nodes {
+                      id
+                      name
+                    }
+                  }
+                }
+              }
+              labels(first: 50) {
+                nodes {
+                  name
+                  id
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+            const response = yield this.octokit.graphql(query);
+            const resource = response["resource"];
+            const cards = (_a = resource.projectCards.nodes) !== null && _a !== void 0 ? _a : [];
+            // Project columns must exist, because this action only makes sense with a
+            // valid project
+            this.projectColumns = resource.repository.projects.nodes[0].columns.nodes;
+            // Issue card may not exist
+            this.issueCard = cards.find((card) => card.project.name === this.projectName);
+            this.repoLabels = resource.repository.labels.nodes;
+            this.assignees = resource.assignees.nodes;
+            this.id = resource.id;
+            this.number = resource.number;
+            this.labels = resource.labels.nodes;
+        });
+    }
+    /**
+     * Load any PRs linked to this issue
+     */
+    loadLinkedPrs() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const query = `
+      {
+        resource(url: "${this.url}") {
+          ... on Issue {
+            timelineItems(first: 100, itemTypes: CROSS_REFERENCED_EVENT) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  willCloseTarget
+                  source {
+                    ... on PullRequest {
+                      id
+                      number
+                      closed
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+            const response = yield this.octokit.graphql(query);
+            const resource = response["resource"];
+            this.linkedPrs = resource.timelineItems.nodes.map((node) => (Object.assign({ willCloseIssue: node.willCloseTarget }, node.source)));
+        });
+    }
+    /**
+     * Add this issue to a particular column in its project
+     */
+    moveToColumn(toColumn) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const column = typeof toColumn === 'string' ? this.getColumn(toColumn) : toColumn;
+            if (!column) {
+                throw new Error(`Invalid column "${toColumn}"`);
+            }
+            const contentId = this.id;
+            const query = this.issueCard
+                ? `
+      mutation {
+        moveProjectCard(input: {
+          cardId: "${this.issueCard.id}",
+          columnId: "${column.id}"
+        }) { clientMutationId }
+      }
+    `
+                : `
+      mutation {
+        addProjectCard(input: {
+          contentId: "${contentId}",
+          projectColumnId: "${column.id}"
+        }) { clientMutationId }
+      }
+    `;
+            yield this.octokit.graphql(query);
+        });
+    }
+    /**
+     * Add a label to this issue
+     */
+    addLabel(toAdd) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const label = typeof toAdd === 'string' ? this.getLabel(toAdd) : toAdd;
+            if (!label) {
+                throw new Error(`Invalid label "${toAdd}"`);
+            }
+            if (this.hasLabel(label.name)) {
+                return;
+            }
+            const query = `
+      mutation {
+        addLabelsToLabelable(input: {
+          labelIds: ["${label.id}"],
+          labelableId: "${this.id}"
+        }) { clientMutationId }
+      }
+    `;
+            yield this.octokit.graphql(query);
+        });
+    }
+    /**
+     * Indicate whether this issue already has a given label
+     */
+    hasLabel(label) {
+        return this.labels.some((lbl) => lbl.name === label);
+    }
+    /**
+     * Indicate whether this issue is assigned
+     */
+    isAssigned() {
+        return this.assignees && this.assignees.length > 0;
+    }
+    /**
+     * Indicate whether this issue is in the given column
+     */
+    isInColumn(column) {
+        const col = typeof column === 'string' ? this.getColumn(column) : column;
+        if (!col || !this.issueCard) {
+            return false;
+        }
+        return this.issueCard.column.id === col.id;
+    }
+    /**
+     * Remove a label from this issue
+     */
+    removeLabel(toRemove) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const label = typeof toRemove === 'string' ? this.getLabel(toRemove) : toRemove;
+            if (!label) {
+                throw new Error(`Invalid label "${toRemove}"`);
+            }
+            if (!this.hasLabel(label.name)) {
+                return;
+            }
+            const query = `
+      mutation {
+        removeLabelsFromLabelable(input: {
+          labelIds: ["${label.id}"],
+          labelableId: "${this.id}"
+        }) { clientMutationId }
+      }
+    `;
+            yield this.octokit.graphql(query);
+        });
+    }
+    /**
+     * Get a column from this issue's project
+     */
+    getColumn(label) {
+        return this.projectColumns.find((col) => col.name === label);
+    }
+    /**
+     * Get a label from this issue's repository
+     */
+    getLabel(label) {
+        return this.repoLabels.find((lbl) => lbl.name === label);
+    }
+}
+function loadIssue(octokit, url, projectName) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const issue = new Issue(octokit, url, projectName);
+        yield issue.load();
+        return issue;
+    });
+}
+
+// CONCATENATED MODULE: ./src/pr.ts
+var pr_awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+class PullRequest {
+    constructor(octokit, url) {
+        this.octokit = octokit;
+        this.url = url;
+        this.id = '';
+        this.number = 0;
+        this.referencedIssues = [];
+    }
+    /**
+     * Load data for an issue and its containing project and repo
+     */
+    load() {
+        return pr_awaiter(this, void 0, void 0, function* () {
+            const query = `
+      {
+        resource(url: "${this.url}") {
+          ... on PullRequest {
+            id
+            number
+            timelineItems(first: 10, itemTypes: CROSS_REFERENCED_EVENT) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  source {
+                    ... on Issue {
+                      id
+                      url
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+            const response = yield this.octokit.graphql(query);
+            const resource = response["resource"];
+            this.id = resource.id;
+            this.number = resource.number;
+            this.referencedIssues = resource.timelineItems.nodes.map((node) => (Object.assign({}, node.source)));
+        });
+    }
+}
+function loadPr(octokit, url) {
+    return pr_awaiter(this, void 0, void 0, function* () {
+        const pr = new PullRequest(octokit, url);
+        yield pr.load();
+        return pr;
+    });
+}
+
+// CONCATENATED MODULE: ./src/types.ts
+var Action;
+(function (Action) {
+    Action[Action["IssueOpened"] = 1] = "IssueOpened";
+    Action[Action["IssueAssignment"] = 2] = "IssueAssignment";
+    Action[Action["IssueClosed"] = 3] = "IssueClosed";
+    Action[Action["IssueReopened"] = 4] = "IssueReopened";
+    Action[Action["IssueLabeling"] = 5] = "IssueLabeling";
+    Action[Action["PrOpened"] = 6] = "PrOpened";
+    Action[Action["PrClosed"] = 7] = "PrClosed";
+})(Action || (Action = {}));
+var ActionType;
+(function (ActionType) {
+    ActionType[ActionType["Issue"] = 1] = "Issue";
+    ActionType[ActionType["PullRequest"] = 2] = "PullRequest";
+})(ActionType || (ActionType = {}));
+
+// CONCATENATED MODULE: ./src/init.ts
+
+
+function getAction(context) {
+    const event = context.eventName;
+    let action = undefined;
+    let actionType = undefined;
+    if (event === 'issues') {
+        actionType = ActionType.Issue;
+        const payload = context.payload;
+        switch (payload.action) {
+            case 'opened':
+                action = Action.IssueOpened;
+                break;
+            case 'closed':
+                action = Action.IssueClosed;
+                break;
+            case 'reopened':
+                action = Action.IssueReopened;
+                break;
+            case 'assigned':
+            case 'unassigned':
+                action = Action.IssueAssignment;
+                break;
+            case 'labeled':
+            case 'unlabeled':
+                action = Action.IssueLabeling;
+                break;
+        }
+    }
+    else if (event === 'pull_request') {
+        actionType = ActionType.PullRequest;
+        const payload = context.payload;
+        switch (payload.action) {
+            // Treat opened and reopened PRs the same
+            case 'opened':
+            case 'reopened':
+                action = Action.PrOpened;
+                break;
+            case 'closed':
+                action = Action.PrClosed;
+                break;
+        }
+    }
+    return { action, actionType };
+}
+function getConfig() {
+    const triagedLabels = Object(core.getInput)('triaged-labels');
+    const config = {
+        token: Object(core.getInput)('github-token'),
+        projectName: Object(core.getInput)('project'),
+        // Column for new issues
+        triageColumnName: Object(core.getInput)('triage-column'),
+        // Label that will be applied to triage issues
+        triageLabel: Object(core.getInput)('triage-label'),
+        // Labels that indicate an issue has been triaged
+        triagedLabels: triagedLabels ? triagedLabels.split(/\s*,\s*/) : null,
+        // Column for "ready" issues
+        todoColumnName: Object(core.getInput)('todo-column'),
+        // Column for "in-progress" issues
+        workingColumnName: Object(core.getInput)('working-column'),
+        // Column for completed issues
+        doneColumnName: Object(core.getInput)('done-column'),
+    };
+    if (!config.token) {
+        throw new Error('A "github-token" property is required');
+    }
+    if (!config.projectName) {
+        throw new Error('A "project" property is required');
+    }
+    return config;
+}
+
+// CONCATENATED MODULE: ./src/index.ts
+var src_awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+/**
+ * Actions
+ *
+ * - New issues will have the "triage" label auto-assigned (if one is configured)
+ * - Issues with the "triage" label will be added to the Triage column (if one
+ *   is configured)
+ * - Issues in the triage column will be moved to todo when the triage label is removed
+ * - Newly assigned issues that are in todo or triage go to the working column
+ * - todo issues that are assigned go to the working column
+ * - When a PR is opened that links to an issue, that issue will be moved to
+ *   the working column
+ * - working issues that are de-assigned go back to todo
+ * - Issues that are on the board and are closed go to done
+ * - Closed issues on the board that are re-opened go back to working
+ * - When issues are added to a column, they should be added in priority order,
+ *   with priority-high at the top and priority-low at the bottom.
+ * - Only issues go on the board, not PRs. PRs will be accessible through issue
+ *   links.
+ */
+
+
+
+
+
+
+function main() {
+    return src_awaiter(this, void 0, void 0, function* () {
+        const actionInfo = getAction(github.context);
+        if (!actionInfo.action) {
+            Object(core.info)(`Skipping event ${event}`);
+            return;
+        }
+        const config = getConfig();
+        const octokit = new github.GitHub(config.token);
+        const { projectName } = config;
+        if (actionInfo.actionType === ActionType.Issue) {
+            Object(core.info)(`Processing an issue event: ${github.context.payload.action}`);
+            const issue = yield loadIssue(octokit, github.context.payload.issue.html_url, projectName);
+            switch (actionInfo.action) {
+                case Action.IssueOpened:
+                    Object(core.info)(`Issue ${issue.number} was opened`);
+                    if (issue.isAssigned()) {
+                        Object(core.info)(`Issue ${issue.number} is assigned`);
+                        if (config.workingColumnName) {
+                            // If the issue is already assigned, move it to the working column
+                            Object(core.info)(`Moving issue ${issue.number} to working column`);
+                            yield issue.moveToColumn(config.workingColumnName);
+                        }
+                    }
+                    else {
+                        Object(core.info)(`Issue ${issue.number} is not assigned`);
+                        // If we have a triage label, apply it to new issues
+                        if (config.triageLabel) {
+                            Object(core.info)(`Adding triage label to ${issue.number}`);
+                            yield issue.addLabel(config.triageLabel);
+                        }
+                        // If we have a triage column, put new issues in it
+                        if (config.triageColumnName) {
+                            Object(core.info)(`Moving issue ${issue.number} to triage column`);
+                            yield issue.moveToColumn(config.triageColumnName);
+                        }
+                    }
+                    break;
+                case Action.IssueClosed:
+                    Object(core.info)(`Issue ${issue.number} was closed`);
+                    // If an issue is closed, it's done
+                    if (config.doneColumnName) {
+                        Object(core.info)(`Moving issue ${issue.number} to done column`);
+                        yield issue.moveToColumn(config.doneColumnName);
+                    }
+                    break;
+                case Action.IssueReopened:
+                    Object(core.info)(`Issue ${issue.number} was reopened`);
+                    // If an issue is reopened and is assigned, it's in progress, otherwise
+                    // it's todo
+                    if (issue.isAssigned() && config.workingColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is assigned; moving to working column`);
+                        yield issue.moveToColumn(config.workingColumnName);
+                    }
+                    else if (!issue.isAssigned() && config.todoColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is not assigned; moving to todo column`);
+                        yield issue.moveToColumn(config.todoColumnName);
+                    }
+                    break;
+                case Action.IssueAssignment:
+                    Object(core.info)(`Issue ${issue.number} was assigned`);
+                    // If a triaged or todo issue is assigned, it's in progress
+                    if (issue.isAssigned() && config.workingColumnName) {
+                        if ((config.todoColumnName &&
+                            issue.isInColumn(config.todoColumnName)) ||
+                            (config.triageColumnName &&
+                                issue.isInColumn(config.triageColumnName))) {
+                            Object(core.info)(`Moving issue ${issue.number} to working column`);
+                            yield issue.moveToColumn(config.workingColumnName);
+                            if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                                Object(core.info)(`Removing triage label from issue ${issue.number}`);
+                                yield issue.removeLabel(config.triageLabel);
+                            }
+                        }
+                    }
+                    else if (!issue.isAssigned() && config.todoColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is not assigned`);
+                        if (config.workingColumnName &&
+                            issue.isInColumn(config.workingColumnName)) {
+                            Object(core.info)(`Moving ${issue.number} to todo column`);
+                            yield issue.moveToColumn(config.todoColumnName);
+                        }
+                    }
+                    break;
+                case Action.IssueLabeling:
+                    Object(core.info)(`Issue ${issue.number} was relabeled`);
+                    if (config.triageLabel) {
+                        if (issue.hasLabel(config.triageLabel)) {
+                            if (config.triageColumnName &&
+                                !issue.isInColumn(config.triageColumnName)) {
+                                Object(core.info)(`Moving ${issue.number} to triage column`);
+                                yield issue.moveToColumn(config.triageColumnName);
+                            }
+                        }
+                        else {
+                            if (config.todoColumnName &&
+                                !issue.isInColumn(config.todoColumnName)) {
+                                Object(core.info)(`Moving ${issue.number} to todo column`);
+                                yield issue.moveToColumn(config.todoColumnName);
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
+        else {
+            Object(core.info)(`Processing a PR event: ${github.context.payload.action}`);
+            const pr = yield loadPr(octokit, github.context.payload.pull_request.html_url);
+            switch (actionInfo.action) {
+                case Action.PrOpened:
+                    Object(core.info)(`PR ${pr.number} was opened`);
+                    // Find referenced open issues; if in triage or todo, move them to
+                    // in-progress
+                    // TODO: maybe only do this for issues that the PR would close
+                    for (const issueRef of pr.referencedIssues) {
+                        const issue = yield loadIssue(octokit, issueRef.url, projectName);
+                        // Only consider project issues
+                        if (!issue.issueCard) {
+                            continue;
+                        }
+                        if ((config.todoColumnName &&
+                            issue.isInColumn(config.todoColumnName)) ||
+                            (config.triageColumnName &&
+                                issue.isInColumn(config.triageColumnName))) {
+                            if (config.workingColumnName) {
+                                Object(core.info)(`Moving issue ${issue.number} to working column`);
+                                yield issue.moveToColumn(config.workingColumnName);
+                            }
+                            if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                                Object(core.info)(`Removing triage label from ${issue.number}`);
+                                yield issue.removeLabel(config.triageLabel);
+                            }
+                        }
+                    }
+                    break;
+                case Action.PrClosed:
+                    Object(core.info)(`PR ${pr.number} was closed`);
+                    // Find referenced in-progress issues. If not assigned and in
+                    // in-progress and there are no other attached open PRs, move them to
+                    // todo.
+                    for (const issueRef of pr.referencedIssues) {
+                        const issue = yield loadIssue(octokit, issueRef.url, projectName);
+                        // Only consider project issues
+                        if (!issue.issueCard) {
+                            continue;
+                        }
+                        yield issue.loadLinkedPrs();
+                        const otherOpenPrs = issue.linkedPrs.filter((p) => !p.closed && p.id !== pr.id);
+                        if ((otherOpenPrs.length === 0 || !issue.isAssigned()) &&
+                            config.todoColumnName) {
+                            Object(core.info)(`Moving issue ${issue.number} to todo column`);
+                            yield issue.moveToColumn(config.todoColumnName);
+                        }
+                    }
+                    break;
+            }
+        }
+    });
+}
+main().catch((error) => console.error(error));
+
 
 /***/ }),
 
@@ -8451,378 +9063,6 @@ function authenticate(state, options) {
 module.exports = function btoa(str) {
   return new Buffer(str).toString('base64')
 }
-
-
-/***/ }),
-
-/***/ 677:
-/***/ (function(__unusedmodule, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-__webpack_require__.r(__webpack_exports__);
-
-// EXTERNAL MODULE: ./node_modules/@actions/core/lib/core.js
-var core = __webpack_require__(470);
-
-// EXTERNAL MODULE: ./node_modules/@actions/github/lib/github.js
-var github = __webpack_require__(469);
-
-// CONCATENATED MODULE: ./src/issue.ts
-var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-class Issue {
-    constructor(octokit, context, projectName) {
-        this.octokit = octokit;
-        this.context = context;
-        this.projectName = projectName;
-    }
-    /**
-     * Load data for an issue and its containing project and repo
-     */
-    load() {
-        var _a, _b, _c, _d;
-        return __awaiter(this, void 0, void 0, function* () {
-            const { payload } = this.context;
-            const url = payload.issue.html_url;
-            const query = `
-      {
-        resource(url: "${url}") {
-          ... on Issue {
-            id
-            assignees(first: 1) {
-              nodes {
-                name
-                id
-              }
-            }
-            labels(first: 10) {
-              nodes {
-                name
-                id
-              }
-            }
-            projectCards {
-              nodes {
-                id
-                column {
-                  name
-                  id
-                }
-                project {
-                  name
-                  id
-                }
-              }
-            },
-            repository {
-              projects(search: "${this.projectName}", first: 10, states: [OPEN]) {
-                nodes {
-                  name
-                  id
-                  columns(first: 10) {
-                    nodes {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-              labels(first: 50) {
-                nodes {
-                  name
-                  id
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-            const { resource } = yield this.octokit.graphql(query);
-            console.log(`loaded resource: ${JSON.stringify(resource)}`);
-            const cards = (_a = resource.projectCards.nodes) !== null && _a !== void 0 ? _a : [];
-            this.issueCard = cards.find((card) => card.project.name === this.projectName);
-            this.cardColumn = resource.projectCards.column;
-            this.projectColumns = (_d = (_c = (_b = resource.repository.projects.nodes[0]) === null || _b === void 0 ? void 0 : _b.columns) === null || _c === void 0 ? void 0 : _c.nodes) !== null && _d !== void 0 ? _d : [];
-            this.repoLabels = resource.repository.labels.nodes;
-            this.assignees = resource.assignees;
-            this.id = resource.id;
-            this.labels = resource.labels;
-        });
-    }
-    /**
-     * Add this issue to a particular column in its project
-     */
-    moveToColumn(toColumn) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const column = typeof toColumn === 'string' ? this.getColumn(toColumn) : toColumn;
-            const contentId = this.id;
-            const query = this.issueCard
-                ? `
-      mutation {
-        moveProjectCard(input: {
-          cardId: "${this.issueCard.id}",
-          columnId: "${column.id}"
-        }) { clientMutationId }
-      }
-    `
-                : `
-      mutation {
-        addProjectCard(input: {
-          contentId: "${contentId}",
-          projectColumnId: "${column.id}"
-        }) { clientMutationId }
-      }
-    `;
-            yield this.mutate(query);
-        });
-    }
-    /**
-     * Add a label to this issue
-     */
-    addLabel(newLabel) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const label = typeof newLabel === 'string' ? this.getLabel(newLabel) : newLabel;
-            if (this.hasLabel(label.name)) {
-                return;
-            }
-            const query = `
-      mutation {
-        addLabelToLabelable(input: {
-          labelIds: ["${label.id}"],
-          labelableId: "${this.id}"
-        }) { clientMutationId }
-      }
-    `;
-            yield this.mutate(query);
-        });
-    }
-    /**
-     * Indicate whether this issue already has a given label
-     */
-    hasLabel(label) {
-        return this.labels.some((lbl) => lbl.name === label);
-    }
-    /**
-     * Indicate whether this issue is assigned
-     */
-    isAssigned() {
-        return this.assignees && this.assignees.length > 0;
-    }
-    /**
-     * Indicate whether this issue is in the given column
-     */
-    isInColumn(column) {
-        const col = typeof column === 'string' ? this.getColumn(column) : column;
-        if (this.cardColumn && col) {
-            return this.cardColumn.id === col.id;
-        }
-        return false;
-    }
-    /**
-     * Get a column from this issue's project
-     */
-    getColumn(label) {
-        return this.projectColumns.find((col) => col.name === label);
-    }
-    /**
-     * Get a label from this issue's repository
-     */
-    getLabel(label) {
-        return this.repoLabels.find((lbl) => lbl.name === label);
-    }
-    /**
-     * Mutate the issue
-     */
-    mutate(query) {
-        return __awaiter(this, void 0, void 0, function* () {
-            yield this.octokit.graphql(query);
-            yield this.load();
-        });
-    }
-}
-
-// CONCATENATED MODULE: ./src/types.ts
-var Action;
-(function (Action) {
-    Action[Action["IssueOpened"] = 1] = "IssueOpened";
-    Action[Action["IssueAssignment"] = 2] = "IssueAssignment";
-    Action[Action["IssueClosed"] = 3] = "IssueClosed";
-    Action[Action["IssueReopened"] = 4] = "IssueReopened";
-    Action[Action["IssueLabeling"] = 5] = "IssueLabeling";
-})(Action || (Action = {}));
-
-// CONCATENATED MODULE: ./src/init.ts
-
-
-function getAction(context) {
-    const event = context.eventName;
-    if (event !== 'issues') {
-        return;
-    }
-    const payload = context.payload;
-    switch (payload.action) {
-        case 'opened':
-            return Action.IssueOpened;
-        case 'closed':
-            return Action.IssueClosed;
-        case 'reopened':
-            return Action.IssueReopened;
-        case 'assigned':
-        case 'unassigned':
-            return Action.IssueAssignment;
-        case 'labeled':
-        case 'unlabeled':
-            return Action.IssueLabeling;
-    }
-}
-function getConfig() {
-    const triagedLabels = Object(core.getInput)('triaged-labels');
-    const config = {
-        token: Object(core.getInput)('github-token'),
-        projectName: Object(core.getInput)('project'),
-        // Column for new issues
-        triageColumnName: Object(core.getInput)('triage-column'),
-        // Label that will be applied to triage issues
-        triageLabel: Object(core.getInput)('triage-label'),
-        // Labels that indicate an issue has been triaged
-        triagedLabels: triagedLabels ? triagedLabels.split(/\s*,\s*/) : null,
-        // Column for "ready" issues
-        todoColumnName: Object(core.getInput)('todo-column'),
-        // Column for "in-progress" issues
-        workingColumnName: Object(core.getInput)('working-column'),
-        // Column for completed issues
-        doneColumnName: Object(core.getInput)('done-column'),
-    };
-    if (!config.token) {
-        throw new Error('A "github-token" property is required');
-    }
-    if (!config.projectName) {
-        throw new Error('A "project" property is required');
-    }
-    return config;
-}
-
-// CONCATENATED MODULE: ./src/index.ts
-var src_awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-/**
- * Actions
- *
- * - New issues will have the "triage" label auto-assigned (if one is configured)
- * - Issues with the "triage" label will be added to the Triage column (if one
- *   is configured)
- * - Issues in the triage column will be moved to todo when the triage label is removed
- * - Newly assigned issues that are in todo or triage go to the working column
- * - todo issues that are assigned go to the working column
- * - When a PR is opened that links to an issue, that issue will be moved to
- *   the working column
- * - working issues that are de-assigned go back to todo
- * - Issues that are on the board and are closed go to done
- * - Closed issues on the board that are re-opened go back to working
- * - When issues are added to a column, they should be added in priority order,
- *   with priority-high at the top and priority-low at the bottom.
- * - Only issues go on the board, not PRs. PRs will be accessible through issue
- *   links.
- */
-
-
-
-
-
-function main() {
-    return src_awaiter(this, void 0, void 0, function* () {
-        const action = getAction(github.context);
-        if (!action) {
-            Object(core.info)(`Skipping event ${event}`);
-            return;
-        }
-        const config = getConfig();
-        const octokit = new github.GitHub(config.token);
-        const { projectName } = config;
-        const issue = new Issue(octokit, github.context, projectName);
-        yield issue.load();
-        switch (action) {
-            case Action.IssueOpened:
-                if (issue.isAssigned() && config.workingColumnName) {
-                    // If the issue is already assigned, move it to the working column
-                    yield issue.moveToColumn(config.workingColumnName);
-                }
-                else if (!(config.triagedLabels &&
-                    config.triagedLabels.some((label) => issue.hasLabel(label)))) {
-                    // If we have a triage label, apply it to new issues
-                    if (config.triageLabel) {
-                        yield issue.addLabel(config.triageLabel);
-                    }
-                    // If we have a triage column, put new issues in it
-                    if (config.triageColumnName) {
-                        yield issue.moveToColumn(config.triageColumnName);
-                    }
-                }
-                break;
-            case Action.IssueClosed:
-                // If an issue is closed, it's done
-                if (config.doneColumnName) {
-                    yield issue.moveToColumn(config.doneColumnName);
-                }
-                break;
-            case Action.IssueReopened:
-                // If an issue is reopened, it's back in progress
-                if (config.workingColumnName &&
-                    config.doneColumnName &&
-                    issue.isInColumn(config.doneColumnName)) {
-                    yield issue.moveToColumn(config.workingColumnName);
-                }
-                break;
-            case Action.IssueAssignment:
-                // If a triaged or todo issue is assigned, it's in progress
-                if (issue.isAssigned()) {
-                    if (config.workingColumnName &&
-                        config.todoColumnName &&
-                        issue.isInColumn(config.todoColumnName)) {
-                        yield issue.moveToColumn(config.workingColumnName);
-                    }
-                }
-                else {
-                    if (config.todoColumnName &&
-                        config.workingColumnName &&
-                        issue.isInColumn(config.workingColumnName)) {
-                        yield issue.moveToColumn(config.todoColumnName);
-                    }
-                }
-                break;
-            case Action.IssueLabeling:
-                if (config.triageLabel) {
-                    if (issue.hasLabel(config.triageLabel)) {
-                        if (config.triageColumnName && !issue.isInColumn(config.triageColumnName)) {
-                            yield issue.moveToColumn(config.triageColumnName);
-                        }
-                    }
-                    else {
-                        if (config.todoColumnName && !issue.isInColumn(config.todoColumnName)) {
-                            yield issue.moveToColumn(config.todoColumnName);
-                        }
-                    }
-                }
-                break;
-        }
-    });
-}
-main().catch((error) => console.error(error));
 
 
 /***/ }),
