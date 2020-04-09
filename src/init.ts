@@ -1,29 +1,41 @@
-import { getInput, info } from '@actions/core';
-import { WebhookPayloadIssues } from '@octokit/webhooks';
-import { Action, Context } from './types';
+import { getInput } from '@actions/core';
+import { WebhookPayloadIssues, WebhookPayloadPullRequest } from '@octokit/webhooks';
+import { Action, ActionType, Context } from './types';
 
-export function getAction(context: Context): Action | undefined {
+export function getAction(context: Context): { action?: Action, actionType?: ActionType } {
   const event = context.eventName;
+  let action: Action | undefined = undefined;
+  let actionType: ActionType | undefined = undefined;
 
-  if (event !== 'issues') {
-    return;
+  if (event === 'issues') {
+    actionType = ActionType.Issue;
+    const payload = context.payload as WebhookPayloadIssues;
+    switch (payload.action) {
+      case 'opened':
+        action = Action.IssueOpened;
+      case 'closed':
+        action = Action.IssueClosed;
+      case 'reopened':
+        action = Action.IssueReopened;
+      case 'assigned':
+      case 'unassigned':
+        action = Action.IssueAssignment;
+      case 'labeled':
+      case 'unlabeled':
+        action = Action.IssueLabeling;
+    }
+  } else if (event === 'pull_request') {
+    actionType = ActionType.PullRequest;
+    const payload = context.payload as WebhookPayloadPullRequest;
+    switch (payload.action) {
+      case 'opened':
+        action = Action.PrOpened;
+      case 'closed':
+        action = Action.PrClosed;
+    }
   }
 
-  const payload = context.payload as WebhookPayloadIssues;
-  switch (payload.action) {
-    case 'opened':
-      return Action.IssueOpened;
-    case 'closed':
-      return Action.IssueClosed;
-    case 'reopened':
-      return Action.IssueReopened;
-    case 'assigned':
-    case 'unassigned':
-      return Action.IssueAssignment;
-    case 'labeled':
-    case 'unlabeled':
-      return Action.IssueLabeling;
-  }
+  return { action , actionType };
 }
 
 export function getConfig() {

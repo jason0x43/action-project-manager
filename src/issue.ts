@@ -1,29 +1,30 @@
-import { Context } from './types';
+import { NamedEntity } from './types';
 import { GitHub } from '@actions/github';
-
-export interface Entity {
-  name: string;
-  id: string;
-}
 
 export interface Card {
   id: string;
-  column: Entity;
-  project: Entity;
+  column: NamedEntity;
+  project: NamedEntity;
+}
+
+export interface LinkedPr {
+  willCloseIssue: boolean;
+  closed: boolean;
+  id: string;
 }
 
 export interface Project {
   name: string;
   id: string;
   columns: {
-    nodes: Entity[];
+    nodes: NamedEntity[];
   };
 }
 
 export interface IssueQueryResource {
   id: string;
   assignees: {
-    nodes: Entity[];
+    nodes: NamedEntity[];
   };
   projectCards: {
     nodes: Card[];
@@ -33,7 +34,7 @@ export interface IssueQueryResource {
       nodes: Project[];
     };
     labels: {
-      nodes: Entity[];
+      nodes: NamedEntity[];
     };
   };
 }
@@ -42,31 +43,38 @@ export class Issue {
   // Issue or card
   issueCard?: Card;
   // Project columns
-  projectColumns?: Entity[];
+  projectColumns: NamedEntity[];
   // Repo labels
-  repoLabels?: Entity[];
+  repoLabels: NamedEntity[];
   // Issue id
-  id?: string;
+  id: string;
   // Issue labels
-  labels?: Entity[];
+  labels: NamedEntity[];
   // Issue assignees
-  assignees?: Entity[];
+  assignees: NamedEntity[];
+  // Linked PRs
+  linkedPrs: LinkedPr[];
 
   constructor(
     public octokit: GitHub,
-    public context: Context,
+    public url: string,
     public projectName: string
-  ) {}
+  ) {
+    this.id = '';
+    this.labels = [];
+    this.assignees = [];
+    this.projectColumns = [];
+    this.repoLabels = [];
+    this.linkedPrs = [];
+  }
 
   /**
    * Load data for an issue and its containing project and repo
    */
   async load() {
-    const { payload } = this.context;
-    const url = payload.issue.html_url;
     const query = `
       {
-        resource(url: "${url}") {
+        resource(url: "${this.url}") {
           ... on Issue {
             id
             assignees(first: 1) {
@@ -118,10 +126,9 @@ export class Issue {
         }
       }
     `;
-    const { resource } = await this.octokit.graphql(query);
 
-    console.log(`loaded resource: ${JSON.stringify(resource, null, '  ')}`);
-
+    const response = await this.octokit.graphql(query);
+    const resource = response!["resource"];
     const cards: Card[] = resource.projectCards.nodes ?? [];
 
     // Project columns must exist, because this action only makes sense with a
@@ -138,18 +145,57 @@ export class Issue {
   }
 
   /**
+   * Load any PRs linked to this issue
+   */
+  async loadLinkedPrs() {
+    const query = `
+      {
+        resource(url: "${this.url}") {
+          ... on Issue {
+            timelineItems(first: 100, itemTypes: CROSS_REFERENCED_EVENT) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  willCloseTarget
+                  source {
+                    ... on PullRequest {
+                      id
+                      closed
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await this.octokit.graphql(query);
+    const resource = response!["resource"];
+    this.linkedPrs = resource.timelineItems.nodes.map((node: any) => ({
+      willCloseIssue: node.willCloseTarget,
+      ...node.source
+    }));
+  }
+
+  /**
    * Add this issue to a particular column in its project
    */
-  async moveToColumn(toColumn: Entity | string): Promise<void> {
+  async moveToColumn(toColumn: NamedEntity | string): Promise<void> {
     const column =
       typeof toColumn === 'string' ? this.getColumn(toColumn) : toColumn;
+
+    if (!column) {
+      throw new Error(`Invalid column "${toColumn}"`);
+    }
+
     const contentId = this.id;
     const query = this.issueCard
       ? `
       mutation {
         moveProjectCard(input: {
           cardId: "${this.issueCard.id}",
-          columnId: "${column.id}"
+          columnId: "${column!.id}"
         }) { clientMutationId }
       }
     `
@@ -168,8 +214,12 @@ export class Issue {
   /**
    * Add a label to this issue
    */
-  async addLabel(toAdd: Entity | string): Promise<void> {
+  async addLabel(toAdd: NamedEntity | string): Promise<void> {
     const label = typeof toAdd === 'string' ? this.getLabel(toAdd) : toAdd;
+    if (!label) {
+      throw new Error(`Invalid label "${toAdd}"`);
+    }
+
     if (this.hasLabel(label.name)) {
       return;
     }
@@ -203,7 +253,7 @@ export class Issue {
   /**
    * Indicate whether this issue is in the given column
    */
-  isInColumn(column: Entity | string): boolean {
+  isInColumn(column: NamedEntity | string): boolean {
     const col = typeof column === 'string' ? this.getColumn(column) : column;
     if (!col || !this.issueCard) {
       return false;
@@ -214,9 +264,13 @@ export class Issue {
   /**
    * Remove a label from this issue
    */
-  async removeLabel(toRemove: Entity | string): Promise<void> {
+  async removeLabel(toRemove: NamedEntity | string): Promise<void> {
     const label =
       typeof toRemove === 'string' ? this.getLabel(toRemove) : toRemove;
+    if (!label) {
+      throw new Error(`Invalid label "${toRemove}"`);
+    }
+
     if (!this.hasLabel(label.name)) {
       return;
     }
@@ -236,14 +290,24 @@ export class Issue {
   /**
    * Get a column from this issue's project
    */
-  private getColumn(label: string): Entity | undefined {
+  private getColumn(label: string): NamedEntity | undefined {
     return this.projectColumns.find((col) => col.name === label);
   }
 
   /**
    * Get a label from this issue's repository
    */
-  private getLabel(label: string): Entity | undefined {
+  private getLabel(label: string): NamedEntity | undefined {
     return this.repoLabels.find((lbl) => lbl.name === label);
   }
+}
+
+export async function loadIssue(
+  octokit: GitHub,
+  url: string,
+  projectName: string
+) {
+  const issue = new Issue(octokit, url, projectName);
+  await issue.load();
+  return issue;
 }
