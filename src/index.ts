@@ -35,6 +35,8 @@ async function main() {
   const { projectName } = config;
   const issue = new Issue(octokit, context, projectName);
 
+  await issue.load();
+
   switch (action) {
     case Action.IssueOpened:
       if (issue.isAssigned() && config.workingColumnName) {
