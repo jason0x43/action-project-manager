@@ -8597,7 +8597,7 @@ class Issue {
             }
             const query = `
       mutation {
-        addLabelToLabelable(input: {
+        addLabelsToLabelable(input: {
           labelIds: ["${label.id}"],
           labelableId: "${this.id}"
         }) { clientMutationId }
