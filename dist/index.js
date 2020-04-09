@@ -8487,7 +8487,7 @@ class Issue {
      * Load data for an issue and its containing project and repo
      */
     load() {
-        var _a, _b, _c, _d;
+        var _a;
         return __awaiter(this, void 0, void 0, function* () {
             const { payload } = this.context;
             const url = payload.issue.html_url;
@@ -8546,15 +8546,17 @@ class Issue {
       }
     `;
             const { resource } = yield this.octokit.graphql(query);
-            console.log(`loaded resource: ${JSON.stringify(resource)}`);
+            console.log(`loaded resource: ${JSON.stringify(resource, null, '  ')}`);
             const cards = (_a = resource.projectCards.nodes) !== null && _a !== void 0 ? _a : [];
+            // Project columns must exist, because this action only makes sense with a
+            // valid project
+            this.projectColumns = resource.repository.projects.nodes[0].columns.nodes;
+            // Issue card may not exist
             this.issueCard = cards.find((card) => card.project.name === this.projectName);
-            this.cardColumn = resource.projectCards.column;
-            this.projectColumns = (_d = (_c = (_b = resource.repository.projects.nodes[0]) === null || _b === void 0 ? void 0 : _b.columns) === null || _c === void 0 ? void 0 : _c.nodes) !== null && _d !== void 0 ? _d : [];
             this.repoLabels = resource.repository.labels.nodes;
-            this.assignees = resource.assignees;
+            this.assignees = resource.assignees.nodes;
             this.id = resource.id;
-            this.labels = resource.labels;
+            this.labels = resource.labels.nodes;
         });
     }
     /**
@@ -8621,10 +8623,10 @@ class Issue {
      */
     isInColumn(column) {
         const col = typeof column === 'string' ? this.getColumn(column) : column;
-        if (this.cardColumn && col) {
-            return this.cardColumn.id === col.id;
+        if (!col || !this.issueCard) {
+            return false;
         }
-        return false;
+        return this.issueCard.column.id === col.id;
     }
     /**
      * Get a column from this issue's project

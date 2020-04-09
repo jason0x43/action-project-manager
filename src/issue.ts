@@ -8,6 +8,7 @@ export interface Entity {
 
 export interface Card {
   id: string;
+  column: Entity;
   project: Entity;
 }
 
@@ -40,8 +41,6 @@ export interface IssueQueryResource {
 export class Issue {
   // Issue or card
   issueCard?: Card;
-  // Column for the card
-  cardColumn?: Entity;
   // Project columns
   projectColumns?: Entity[];
   // Repo labels
@@ -121,19 +120,21 @@ export class Issue {
     `;
     const { resource } = await this.octokit.graphql(query);
 
-    console.log(`loaded resource: ${JSON.stringify(resource)}`);
+    console.log(`loaded resource: ${JSON.stringify(resource, null, '  ')}`);
 
     const cards: Card[] = resource.projectCards.nodes ?? [];
+
+    // Project columns must exist, because this action only makes sense with a
+    // valid project
+    this.projectColumns = resource.repository.projects.nodes[0].columns.nodes;
+    // Issue card may not exist
     this.issueCard = cards.find(
       (card) => card.project.name === this.projectName
     );
-    this.cardColumn = resource.projectCards.column;
-    this.projectColumns =
-      resource.repository.projects.nodes[0]?.columns?.nodes ?? [];
     this.repoLabels = resource.repository.labels.nodes;
-    this.assignees = resource.assignees;
+    this.assignees = resource.assignees.nodes;
     this.id = resource.id;
-    this.labels = resource.labels;
+    this.labels = resource.labels.nodes;
   }
 
   /**
@@ -205,10 +206,10 @@ export class Issue {
    */
   isInColumn(column: Entity | string): boolean {
     const col = typeof column === 'string' ? this.getColumn(column) : column;
-    if (this.cardColumn && col) {
-      return this.cardColumn.id === col.id;
+    if (!col || !this.issueCard) {
+      return false;
     }
-    return false;
+    return this.issueCard.column.id === col.id;
   }
 
   /**
