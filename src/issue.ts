@@ -162,15 +162,14 @@ export class Issue {
       }
     `;
 
-    await this.mutate(query);
+    await this.octokit.graphql(query);
   }
 
   /**
    * Add a label to this issue
    */
-  async addLabel(newLabel: Entity | string): Promise<void> {
-    const label =
-      typeof newLabel === 'string' ? this.getLabel(newLabel) : newLabel;
+  async addLabel(toAdd: Entity | string): Promise<void> {
+    const label = typeof toAdd === 'string' ? this.getLabel(toAdd) : toAdd;
     if (this.hasLabel(label.name)) {
       return;
     }
@@ -184,7 +183,7 @@ export class Issue {
       }
     `;
 
-    await this.mutate(query);
+    await this.octokit.graphql(query);
   }
 
   /**
@@ -213,6 +212,28 @@ export class Issue {
   }
 
   /**
+   * Remove a label from this issue
+   */
+  async removeLabel(toRemove: Entity | string): Promise<void> {
+    const label =
+      typeof toRemove === 'string' ? this.getLabel(toRemove) : toRemove;
+    if (!this.hasLabel(label.name)) {
+      return;
+    }
+
+    const query = `
+      mutation {
+        removeLabelsFromLabelable(input: {
+          labelIds: ["${label.id}"],
+          labelableId: "${this.id}"
+        }) { clientMutationId }
+      }
+    `;
+
+    await this.octokit.graphql(query);
+  }
+
+  /**
    * Get a column from this issue's project
    */
   private getColumn(label: string): Entity | undefined {
@@ -224,13 +245,5 @@ export class Issue {
    */
   private getLabel(label: string): Entity | undefined {
     return this.repoLabels.find((lbl) => lbl.name === label);
-  }
-
-  /**
-   * Mutate the issue
-   */
-  private async mutate(query: string) {
-    await this.octokit.graphql(query);
-    await this.load();
   }
 }

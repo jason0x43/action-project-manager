@@ -8583,15 +8583,15 @@ class Issue {
         }) { clientMutationId }
       }
     `;
-            yield this.mutate(query);
+            yield this.octokit.graphql(query);
         });
     }
     /**
      * Add a label to this issue
      */
-    addLabel(newLabel) {
+    addLabel(toAdd) {
         return __awaiter(this, void 0, void 0, function* () {
-            const label = typeof newLabel === 'string' ? this.getLabel(newLabel) : newLabel;
+            const label = typeof toAdd === 'string' ? this.getLabel(toAdd) : toAdd;
             if (this.hasLabel(label.name)) {
                 return;
             }
@@ -8603,7 +8603,7 @@ class Issue {
         }) { clientMutationId }
       }
     `;
-            yield this.mutate(query);
+            yield this.octokit.graphql(query);
         });
     }
     /**
@@ -8629,6 +8629,26 @@ class Issue {
         return this.issueCard.column.id === col.id;
     }
     /**
+     * Remove a label from this issue
+     */
+    removeLabel(toRemove) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const label = typeof toRemove === 'string' ? this.getLabel(toRemove) : toRemove;
+            if (!this.hasLabel(label.name)) {
+                return;
+            }
+            const query = `
+      mutation {
+        removeLabelsFromLabelable(input: {
+          labelIds: ["${label.id}"],
+          labelableId: "${this.id}"
+        }) { clientMutationId }
+      }
+    `;
+            yield this.octokit.graphql(query);
+        });
+    }
+    /**
      * Get a column from this issue's project
      */
     getColumn(label) {
@@ -8639,15 +8659,6 @@ class Issue {
      */
     getLabel(label) {
         return this.repoLabels.find((lbl) => lbl.name === label);
-    }
-    /**
-     * Mutate the issue
-     */
-    mutate(query) {
-        return __awaiter(this, void 0, void 0, function* () {
-            yield this.octokit.graphql(query);
-            yield this.load();
-        });
     }
 }
 
@@ -8783,25 +8794,28 @@ function main() {
                 }
                 break;
             case Action.IssueReopened:
-                // If an issue is reopened, it's back in progress
-                if (config.workingColumnName &&
-                    config.doneColumnName &&
-                    issue.isInColumn(config.doneColumnName)) {
+                // If an issue is reopened and is assigned, it's in progress, otherwise
+                // it's todo
+                if (issue.isAssigned() && config.workingColumnName) {
                     yield issue.moveToColumn(config.workingColumnName);
+                }
+                else if (!issue.isAssigned() && config.todoColumnName) {
+                    yield issue.moveToColumn(config.todoColumnName);
                 }
                 break;
             case Action.IssueAssignment:
                 // If a triaged or todo issue is assigned, it's in progress
-                if (issue.isAssigned()) {
-                    if (config.workingColumnName &&
-                        config.todoColumnName &&
-                        issue.isInColumn(config.todoColumnName)) {
+                if (issue.isAssigned() && config.workingColumnName) {
+                    if ((config.todoColumnName && issue.isInColumn(config.todoColumnName)) ||
+                        (config.triageColumnName && issue.isInColumn(config.triageColumnName))) {
                         yield issue.moveToColumn(config.workingColumnName);
+                        if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                            yield issue.removeLabel(config.triageLabel);
+                        }
                     }
                 }
-                else {
-                    if (config.todoColumnName &&
-                        config.workingColumnName &&
+                else if (!issue.isAssigned() && config.todoColumnName) {
+                    if (config.workingColumnName &&
                         issue.isInColumn(config.workingColumnName)) {
                         yield issue.moveToColumn(config.todoColumnName);
                     }
@@ -8810,12 +8824,14 @@ function main() {
             case Action.IssueLabeling:
                 if (config.triageLabel) {
                     if (issue.hasLabel(config.triageLabel)) {
-                        if (config.triageColumnName && !issue.isInColumn(config.triageColumnName)) {
+                        if (config.triageColumnName &&
+                            !issue.isInColumn(config.triageColumnName)) {
                             yield issue.moveToColumn(config.triageColumnName);
                         }
                     }
                     else {
-                        if (config.todoColumnName && !issue.isInColumn(config.todoColumnName)) {
+                        if (config.todoColumnName &&
+                            !issue.isInColumn(config.todoColumnName)) {
                             yield issue.moveToColumn(config.todoColumnName);
                         }
                     }

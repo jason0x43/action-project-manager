@@ -68,29 +68,30 @@ async function main() {
       break;
 
     case Action.IssueReopened:
-      // If an issue is reopened, it's back in progress
-      if (
-        config.workingColumnName &&
-        config.doneColumnName &&
-        issue.isInColumn(config.doneColumnName)
-      ) {
+      // If an issue is reopened and is assigned, it's in progress, otherwise
+      // it's todo
+      if (issue.isAssigned() && config.workingColumnName) {
         await issue.moveToColumn(config.workingColumnName);
+      } else if (!issue.isAssigned() && config.todoColumnName) {
+        await issue.moveToColumn(config.todoColumnName);
       }
       break;
 
     case Action.IssueAssignment:
       // If a triaged or todo issue is assigned, it's in progress
-      if (issue.isAssigned()) {
+      if (issue.isAssigned() && config.workingColumnName) {
         if (
-          config.workingColumnName &&
-          config.todoColumnName &&
-          issue.isInColumn(config.todoColumnName)
+          (config.todoColumnName && issue.isInColumn(config.todoColumnName)) ||
+          (config.triageColumnName && issue.isInColumn(config.triageColumnName))
         ) {
           await issue.moveToColumn(config.workingColumnName);
+
+          if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+            await issue.removeLabel(config.triageLabel);
+          }
         }
-      } else {
+      } else if (!issue.isAssigned() && config.todoColumnName) {
         if (
-          config.todoColumnName &&
           config.workingColumnName &&
           issue.isInColumn(config.workingColumnName)
         ) {
@@ -102,11 +103,17 @@ async function main() {
     case Action.IssueLabeling:
       if (config.triageLabel) {
         if (issue.hasLabel(config.triageLabel)) {
-          if (config.triageColumnName && !issue.isInColumn(config.triageColumnName)) {
+          if (
+            config.triageColumnName &&
+            !issue.isInColumn(config.triageColumnName)
+          ) {
             await issue.moveToColumn(config.triageColumnName);
           }
         } else {
-          if (config.todoColumnName && !issue.isInColumn(config.todoColumnName)) {
+          if (
+            config.todoColumnName &&
+            !issue.isInColumn(config.todoColumnName)
+          ) {
             await issue.moveToColumn(config.todoColumnName);
           }
         }
