@@ -120,6 +120,9 @@ export class Issue {
       }
     `;
     const { resource } = await this.octokit.graphql(query);
+
+    console.log(`loaded resource: ${JSON.stringify(resource)}`);
+
     const cards: Card[] = resource.projectCards.nodes ?? [];
     this.issueCard = cards.find(
       (card) => card.project.name === this.projectName
