@@ -11,6 +11,7 @@ export interface LinkedPr {
   willCloseIssue: boolean;
   closed: boolean;
   id: string;
+  number: number;
 }
 
 export interface Project {
@@ -48,6 +49,8 @@ export class Issue {
   repoLabels: NamedEntity[];
   // Issue id
   id: string;
+  // Issue number
+  number: number;
   // Issue labels
   labels: NamedEntity[];
   // Issue assignees
@@ -61,6 +64,7 @@ export class Issue {
     public projectName: string
   ) {
     this.id = '';
+    this.number = 0;
     this.labels = [];
     this.assignees = [];
     this.projectColumns = [];
@@ -77,6 +81,7 @@ export class Issue {
         resource(url: "${this.url}") {
           ... on Issue {
             id
+            number
             assignees(first: 1) {
               nodes {
                 name
@@ -141,6 +146,7 @@ export class Issue {
     this.repoLabels = resource.repository.labels.nodes;
     this.assignees = resource.assignees.nodes;
     this.id = resource.id;
+    this.number = resource.number;
     this.labels = resource.labels.nodes;
   }
 
@@ -159,6 +165,7 @@ export class Issue {
                   source {
                     ... on PullRequest {
                       id
+                      number
                       closed
                     }
                   }

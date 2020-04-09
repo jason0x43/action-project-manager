@@ -8,11 +8,14 @@ export interface ReferencedIssue extends Entity {
 export class PullRequest {
   // Pr id
   id: string;
+  // Pr number
+  number: number;
   // Referenced issues
   referencedIssues: ReferencedIssue[];
 
   constructor(public octokit: GitHub, public url: string) {
     this.id = '';
+    this.number = 0;
     this.referencedIssues = [];
   }
 
@@ -25,6 +28,7 @@ export class PullRequest {
         resource(url: "${this.url}") {
           ... on PullRequest {
             id
+            number
             timelineItems(first: 10, itemTypes: CROSS_REFERENCED_EVENT) {
               nodes {
                 ... on CrossReferencedEvent {
@@ -45,6 +49,7 @@ export class PullRequest {
     const response = await this.octokit.graphql(query);
     const resource = response!["resource"];
     this.id = resource.id;
+    this.number = resource.number;
     this.referencedIssues = resource.timelineItems.nodes.map(
       (node: { source: Entity }) => ({
         ...node.source,

@@ -1472,6 +1472,7 @@ class Issue {
         this.url = url;
         this.projectName = projectName;
         this.id = '';
+        this.number = 0;
         this.labels = [];
         this.assignees = [];
         this.projectColumns = [];
@@ -1489,6 +1490,7 @@ class Issue {
         resource(url: "${this.url}") {
           ... on Issue {
             id
+            number
             assignees(first: 1) {
               nodes {
                 name
@@ -1549,6 +1551,7 @@ class Issue {
             this.repoLabels = resource.repository.labels.nodes;
             this.assignees = resource.assignees.nodes;
             this.id = resource.id;
+            this.number = resource.number;
             this.labels = resource.labels.nodes;
         });
     }
@@ -1568,6 +1571,7 @@ class Issue {
                   source {
                     ... on PullRequest {
                       id
+                      number
                       closed
                     }
                   }
@@ -1717,6 +1721,7 @@ class PullRequest {
         this.octokit = octokit;
         this.url = url;
         this.id = '';
+        this.number = 0;
         this.referencedIssues = [];
     }
     /**
@@ -1729,6 +1734,7 @@ class PullRequest {
         resource(url: "${this.url}") {
           ... on PullRequest {
             id
+            number
             timelineItems(first: 10, itemTypes: CROSS_REFERENCED_EVENT) {
               nodes {
                 ... on CrossReferencedEvent {
@@ -1748,6 +1754,7 @@ class PullRequest {
             const response = yield this.octokit.graphql(query);
             const resource = response["resource"];
             this.id = resource.id;
+            this.number = resource.number;
             this.referencedIssues = resource.timelineItems.nodes.map((node) => (Object.assign({}, node.source)));
         });
     }
@@ -1889,72 +1896,93 @@ function main() {
         const octokit = new github.GitHub(config.token);
         const { projectName } = config;
         if (actionInfo.actionType === ActionType.Issue) {
+            Object(core.info)(`Processing an issue event`);
             const issue = yield loadIssue(octokit, github.context.payload.issue.html_url, projectName);
             switch (actionInfo.action) {
                 case Action.IssueOpened:
-                    if (issue.isAssigned() && config.workingColumnName) {
-                        // If the issue is already assigned, move it to the working column
-                        yield issue.moveToColumn(config.workingColumnName);
+                    Object(core.info)(`Issue ${issue.number} was opened`);
+                    if (issue.isAssigned()) {
+                        Object(core.info)(`Issue ${issue.number} is assigned`);
+                        if (config.workingColumnName) {
+                            // If the issue is already assigned, move it to the working column
+                            Object(core.info)(`Moving issue ${issue.number} to working column`);
+                            yield issue.moveToColumn(config.workingColumnName);
+                        }
                     }
-                    else if (!(config.triagedLabels &&
-                        config.triagedLabels.some((label) => issue.hasLabel(label)))) {
+                    else {
+                        Object(core.info)(`Issue ${issue.number} is not assigned`);
                         // If we have a triage label, apply it to new issues
                         if (config.triageLabel) {
+                            Object(core.info)(`Adding triage label to ${issue.number}`);
                             yield issue.addLabel(config.triageLabel);
                         }
                         // If we have a triage column, put new issues in it
                         if (config.triageColumnName) {
+                            Object(core.info)(`Moving issue ${issue.number} to triage column`);
                             yield issue.moveToColumn(config.triageColumnName);
                         }
                     }
                     break;
                 case Action.IssueClosed:
+                    Object(core.info)(`Issue ${issue.number} was closed`);
                     // If an issue is closed, it's done
                     if (config.doneColumnName) {
+                        Object(core.info)(`Moving issue ${issue.number} to done column`);
                         yield issue.moveToColumn(config.doneColumnName);
                     }
                     break;
                 case Action.IssueReopened:
+                    Object(core.info)(`Issue ${issue.number} was reopened`);
                     // If an issue is reopened and is assigned, it's in progress, otherwise
                     // it's todo
                     if (issue.isAssigned() && config.workingColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is assigned; moving to working column`);
                         yield issue.moveToColumn(config.workingColumnName);
                     }
                     else if (!issue.isAssigned() && config.todoColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is not assigned; moving to todo column`);
                         yield issue.moveToColumn(config.todoColumnName);
                     }
                     break;
                 case Action.IssueAssignment:
+                    Object(core.info)(`Issue ${issue.number} was assigned`);
                     // If a triaged or todo issue is assigned, it's in progress
                     if (issue.isAssigned() && config.workingColumnName) {
                         if ((config.todoColumnName &&
                             issue.isInColumn(config.todoColumnName)) ||
                             (config.triageColumnName &&
                                 issue.isInColumn(config.triageColumnName))) {
+                            Object(core.info)(`Moving issue ${issue.number} to working column`);
                             yield issue.moveToColumn(config.workingColumnName);
                             if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                                Object(core.info)(`Removing triage label from issue ${issue.number}`);
                                 yield issue.removeLabel(config.triageLabel);
                             }
                         }
                     }
                     else if (!issue.isAssigned() && config.todoColumnName) {
+                        Object(core.info)(`Issue ${issue.number} is not assigned`);
                         if (config.workingColumnName &&
                             issue.isInColumn(config.workingColumnName)) {
+                            Object(core.info)(`Moving ${issue.number} to todo column`);
                             yield issue.moveToColumn(config.todoColumnName);
                         }
                     }
                     break;
                 case Action.IssueLabeling:
+                    Object(core.info)(`Issue ${issue.number} was relabeled`);
                     if (config.triageLabel) {
                         if (issue.hasLabel(config.triageLabel)) {
                             if (config.triageColumnName &&
                                 !issue.isInColumn(config.triageColumnName)) {
+                                Object(core.info)(`Moving ${issue.number} to triage column`);
                                 yield issue.moveToColumn(config.triageColumnName);
                             }
                         }
                         else {
                             if (config.todoColumnName &&
                                 !issue.isInColumn(config.todoColumnName)) {
+                                Object(core.info)(`Moving ${issue.number} to todo column`);
                                 yield issue.moveToColumn(config.todoColumnName);
                             }
                         }
@@ -1963,9 +1991,11 @@ function main() {
             }
         }
         else {
+            Object(core.info)('Processing a PR event');
             const pr = yield loadPr(octokit, github.context.payload.pull_request.html_url);
             switch (actionInfo.action) {
                 case Action.PrOpened:
+                    Object(core.info)(`PR ${pr.number} was opened`);
                     // Find referenced open issues; if in triage or todo, move them to
                     // in-progress
                     // TODO: maybe only do this for issues that the PR would close
@@ -1980,15 +2010,18 @@ function main() {
                             (config.triageColumnName &&
                                 issue.isInColumn(config.triageColumnName))) {
                             if (config.workingColumnName) {
+                                Object(core.info)(`Moving issue ${issue.number} to working column`);
                                 yield issue.moveToColumn(config.workingColumnName);
                             }
                             if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                                Object(core.info)(`Removing triage label from ${issue.number}`);
                                 yield issue.removeLabel(config.triageLabel);
                             }
                         }
                     }
                     break;
                 case Action.PrClosed:
+                    Object(core.info)(`PR ${pr.number} was closed`);
                     // Find referenced in-progress issues. If not assigned and in
                     // in-progress and there are no other attached open PRs, move them to
                     // todo.
@@ -1999,9 +2032,10 @@ function main() {
                             continue;
                         }
                         yield issue.loadLinkedPrs();
-                        const otherOpenPrs = issue.linkedPrs.filter(p => !p.closed && p.id !== pr.id);
+                        const otherOpenPrs = issue.linkedPrs.filter((p) => !p.closed && p.id !== pr.id);
                         if ((otherOpenPrs.length === 0 || !issue.isAssigned()) &&
                             config.todoColumnName) {
+                            Object(core.info)(`Moving issue ${issue.number} to todo column`);
                             yield issue.moveToColumn(config.todoColumnName);
                         }
                     }
