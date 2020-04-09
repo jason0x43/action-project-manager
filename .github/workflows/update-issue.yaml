@@ -1,4 +1,4 @@
-name: Issue Opened
+name: Update Issue
 
 on:
   issues:
@@ -12,10 +12,10 @@ on:
       - unlabeled
 
 jobs:
-  move-issue:
+  update-issue:
     runs-on: ubuntu-latest
     steps:
-      - uses: jason0x43/action-project-manager@graphql
+      - uses: jason0x43/action-project-manager@graphql-1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           project: Development
