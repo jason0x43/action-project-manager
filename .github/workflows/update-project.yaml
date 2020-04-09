@@ -2,14 +2,25 @@ name: Issue Opened
 
 on:
   issues:
-    types: [opened]
+    types:
+      - opened
+      - closed
+      - reopened
+      - assigned
+      - unassigned
+      - labeled
+      - unlabeled
 
 jobs:
   move-issue:
     runs-on: ubuntu-latest
     steps:
-      - uses: jason0x43/action-project-manager@master
+      - uses: jason0x43/action-project-manager@graphql
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           project: Development
-          column: To do
+          triage-column: Triage
+          triage-label: needs-triage
+          todo-column: "To do"
+          working-column: "In progress"
+          done-column: "Done"
