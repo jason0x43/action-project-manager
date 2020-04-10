@@ -13,6 +13,7 @@ jobs:
       - uses: jason0x43/action-project-manager@graphql
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-add: true
           project: Development
           triage-column: Triage
           triage-label: needs-triage
