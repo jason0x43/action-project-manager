@@ -1491,6 +1491,20 @@ class Issue {
           ... on Issue {
             id
             number
+            timelineItems(first: 50, itemTypes: CROSS_REFERENCED_EVENT) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  willCloseTarget
+                  source {
+                    ... on PullRequest {
+                      id
+                      number
+                      closed
+                    }
+                  }
+                }
+              }
+            }
             assignees(first: 1) {
               nodes {
                 name
@@ -1547,43 +1561,12 @@ class Issue {
             // valid project
             this.projectColumns = resource.repository.projects.nodes[0].columns.nodes;
             // Issue card may not exist
-            this.issueCard = cards.find((card) => card.project.name === this.projectName);
+            this.projectCard = cards.find((card) => card.project.name === this.projectName);
             this.repoLabels = resource.repository.labels.nodes;
             this.assignees = resource.assignees.nodes;
             this.id = resource.id;
             this.number = resource.number;
             this.labels = resource.labels.nodes;
-        });
-    }
-    /**
-     * Load any PRs linked to this issue
-     */
-    loadLinkedPrs() {
-        return __awaiter(this, void 0, void 0, function* () {
-            const query = `
-      {
-        resource(url: "${this.url}") {
-          ... on Issue {
-            timelineItems(first: 100, itemTypes: CROSS_REFERENCED_EVENT) {
-              nodes {
-                ... on CrossReferencedEvent {
-                  willCloseTarget
-                  source {
-                    ... on PullRequest {
-                      id
-                      number
-                      closed
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-            const response = yield this.octokit.graphql(query);
-            const resource = response["resource"];
             this.linkedPrs = resource.timelineItems.nodes.map((node) => (Object.assign({ willCloseIssue: node.willCloseTarget }, node.source)));
         });
     }
@@ -1597,11 +1580,11 @@ class Issue {
                 throw new Error(`Invalid column "${toColumn}"`);
             }
             const contentId = this.id;
-            const query = this.issueCard
+            const query = this.projectCard
                 ? `
       mutation {
         moveProjectCard(input: {
-          cardId: "${this.issueCard.id}",
+          cardId: "${this.projectCard.id}",
           columnId: "${column.id}"
         }) { clientMutationId }
       }
@@ -1657,10 +1640,10 @@ class Issue {
      */
     isInColumn(column) {
         const col = typeof column === 'string' ? this.getColumn(column) : column;
-        if (!col || !this.issueCard) {
+        if (!col || !this.projectCard) {
             return false;
         }
-        return this.issueCard.column.id === col.id;
+        return this.projectCard.column.id === col.id;
     }
     /**
      * Remove a label from this issue
@@ -1716,13 +1699,15 @@ var pr_awaiter = (undefined && undefined.__awaiter) || function (thisArg, _argum
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-class PullRequest {
+
+class pr_PullRequest {
     constructor(octokit, url) {
         this.octokit = octokit;
         this.url = url;
         this.id = '';
         this.number = 0;
         this.referencedIssues = [];
+        this.repository = '';
     }
     /**
      * Load data for an issue and its containing project and repo
@@ -1735,6 +1720,9 @@ class PullRequest {
           ... on PullRequest {
             id
             number
+            repository {
+              nameWithOwner
+            }
             timelineItems(first: 10, itemTypes: CROSS_REFERENCED_EVENT) {
               nodes {
                 ... on CrossReferencedEvent {
@@ -1752,16 +1740,42 @@ class PullRequest {
       }
     `;
             const response = yield this.octokit.graphql(query);
-            const resource = response["resource"];
+            const resource = response['resource'];
             this.id = resource.id;
             this.number = resource.number;
+            this.repository = resource.repository.nameWithOwner;
             this.referencedIssues = resource.timelineItems.nodes.map((node) => (Object.assign({}, node.source)));
+        });
+    }
+    /**
+     * Find all issues in the given project linked to this PR
+     */
+    findLinkedIssues(projectName) {
+        return pr_awaiter(this, void 0, void 0, function* () {
+            // Find all open issues linked to PRs by a closing reference
+            const query = `
+      search(query: "linked:pr is:open type:issue repo:${this.repository}", type: ISSUE, first: 50) {
+        nodes {
+          ... on Issue {
+            url
+          }
+        }
+      }
+    `;
+            const response = yield this.octokit.graphql(query);
+            const issueUrls = response.search.nodes.map((node) => node.id);
+            const issues = [];
+            for (const url of issueUrls) {
+                issues.push(yield loadIssue(this.octokit, url, projectName));
+            }
+            return issues.filter((issue) => issue.projectCard != null &&
+                issue.linkedPrs.some((pr) => pr.id === this.id));
         });
     }
 }
 function loadPr(octokit, url) {
     return pr_awaiter(this, void 0, void 0, function* () {
-        const pr = new PullRequest(octokit, url);
+        const pr = new pr_PullRequest(octokit, url);
         yield pr.load();
         return pr;
     });
@@ -2000,18 +2014,12 @@ function main() {
         else {
             Object(core.info)(`Processing a PR event: ${github.context.payload.action}`);
             const pr = yield loadPr(octokit, github.context.payload.pull_request.html_url);
+            const linkedIssues = yield pr.findLinkedIssues(projectName);
             switch (actionInfo.action) {
                 case Action.PrOpened:
                     Object(core.info)(`PR ${pr.number} was opened`);
-                    // Find referenced open issues; if in triage or todo, move them to
-                    // in-progress
-                    // TODO: maybe only do this for issues that the PR would close
-                    for (const issueRef of pr.referencedIssues) {
-                        const issue = yield loadIssue(octokit, issueRef.url, projectName);
-                        // Only consider project issues
-                        if (!issue.issueCard) {
-                            continue;
-                        }
+                    for (const issue of linkedIssues) {
+                        Object(core.info)(`Checking referenced issue ${issue.number}`);
                         if ((config.todoColumnName &&
                             issue.isInColumn(config.todoColumnName)) ||
                             (config.triageColumnName &&
@@ -2029,19 +2037,12 @@ function main() {
                     break;
                 case Action.PrClosed:
                     Object(core.info)(`PR ${pr.number} was closed`);
-                    // Find referenced in-progress issues. If not assigned and in
-                    // in-progress and there are no other attached open PRs, move them to
-                    // todo.
-                    for (const issueRef of pr.referencedIssues) {
-                        const issue = yield loadIssue(octokit, issueRef.url, projectName);
-                        // Only consider project issues
-                        if (!issue.issueCard) {
-                            continue;
-                        }
-                        yield issue.loadLinkedPrs();
-                        const otherOpenPrs = issue.linkedPrs.filter((p) => !p.closed && p.id !== pr.id);
-                        if ((otherOpenPrs.length === 0 || !issue.isAssigned()) &&
-                            config.todoColumnName) {
+                    for (const issue of linkedIssues) {
+                        Object(core.info)(`Checking referenced issue ${issue.number}`);
+                        if (config.workingColumnName &&
+                            issue.isInColumn(config.workingColumnName) &&
+                            config.todoColumnName &&
+                            !issue.isAssigned()) {
                             Object(core.info)(`Moving issue ${issue.number} to todo column`);
                             yield issue.moveToColumn(config.todoColumnName);
                         }

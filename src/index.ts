@@ -156,21 +156,14 @@ async function main() {
     info(`Processing a PR event: ${context.payload.action}`);
 
     const pr = await loadPr(octokit, context.payload.pull_request!.html_url!);
+    const linkedIssues = await pr.findLinkedIssues(projectName);
 
     switch (actionInfo.action) {
       case Action.PrOpened:
         info(`PR ${pr.number} was opened`);
 
-        // Find referenced open issues; if in triage or todo, move them to
-        // in-progress
-        // TODO: maybe only do this for issues that the PR would close
-        for (const issueRef of pr.referencedIssues) {
-          const issue = await loadIssue(octokit, issueRef.url, projectName);
-
-          // Only consider project issues
-          if (!issue.issueCard) {
-            continue;
-          }
+        for (const issue of linkedIssues) {
+          info(`Checking referenced issue ${issue.number}`);
 
           if (
             (config.todoColumnName &&
@@ -182,6 +175,7 @@ async function main() {
               info(`Moving issue ${issue.number} to working column`);
               await issue.moveToColumn(config.workingColumnName);
             }
+
             if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
               info(`Removing triage label from ${issue.number}`);
               await issue.removeLabel(config.triageLabel);
@@ -193,25 +187,14 @@ async function main() {
       case Action.PrClosed:
         info(`PR ${pr.number} was closed`);
 
-        // Find referenced in-progress issues. If not assigned and in
-        // in-progress and there are no other attached open PRs, move them to
-        // todo.
-        for (const issueRef of pr.referencedIssues) {
-          const issue = await loadIssue(octokit, issueRef.url, projectName);
-
-          // Only consider project issues
-          if (!issue.issueCard) {
-            continue;
-          }
-
-          await issue.loadLinkedPrs();
-          const otherOpenPrs = issue.linkedPrs.filter(
-            (p) => !p.closed && p.id !== pr.id
-          );
+        for (const issue of linkedIssues) {
+          info(`Checking referenced issue ${issue.number}`);
 
           if (
-            (otherOpenPrs.length === 0 || !issue.isAssigned()) &&
-            config.todoColumnName
+            config.workingColumnName &&
+            issue.isInColumn(config.workingColumnName) &&
+            config.todoColumnName &&
+            !issue.isAssigned()
           ) {
             info(`Moving issue ${issue.number} to todo column`);
             await issue.moveToColumn(config.todoColumnName);

@@ -41,8 +41,8 @@ export interface IssueQueryResource {
 }
 
 export class Issue {
-  // Issue or card
-  issueCard?: Card;
+  // Project card for this issue
+  projectCard?: Card;
   // Project columns
   projectColumns: NamedEntity[];
   // Repo labels
@@ -82,6 +82,20 @@ export class Issue {
           ... on Issue {
             id
             number
+            timelineItems(first: 50, itemTypes: CROSS_REFERENCED_EVENT) {
+              nodes {
+                ... on CrossReferencedEvent {
+                  willCloseTarget
+                  source {
+                    ... on PullRequest {
+                      id
+                      number
+                      closed
+                    }
+                  }
+                }
+              }
+            }
             assignees(first: 1) {
               nodes {
                 name
@@ -140,7 +154,7 @@ export class Issue {
     // valid project
     this.projectColumns = resource.repository.projects.nodes[0].columns.nodes;
     // Issue card may not exist
-    this.issueCard = cards.find(
+    this.projectCard = cards.find(
       (card) => card.project.name === this.projectName
     );
     this.repoLabels = resource.repository.labels.nodes;
@@ -148,37 +162,6 @@ export class Issue {
     this.id = resource.id;
     this.number = resource.number;
     this.labels = resource.labels.nodes;
-  }
-
-  /**
-   * Load any PRs linked to this issue
-   */
-  async loadLinkedPrs() {
-    const query = `
-      {
-        resource(url: "${this.url}") {
-          ... on Issue {
-            timelineItems(first: 100, itemTypes: CROSS_REFERENCED_EVENT) {
-              nodes {
-                ... on CrossReferencedEvent {
-                  willCloseTarget
-                  source {
-                    ... on PullRequest {
-                      id
-                      number
-                      closed
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-
-    const response = await this.octokit.graphql(query);
-    const resource = response!["resource"];
     this.linkedPrs = resource.timelineItems.nodes.map((node: any) => ({
       willCloseIssue: node.willCloseTarget,
       ...node.source
@@ -197,11 +180,11 @@ export class Issue {
     }
 
     const contentId = this.id;
-    const query = this.issueCard
+    const query = this.projectCard
       ? `
       mutation {
         moveProjectCard(input: {
-          cardId: "${this.issueCard.id}",
+          cardId: "${this.projectCard.id}",
           columnId: "${column!.id}"
         }) { clientMutationId }
       }
@@ -262,10 +245,11 @@ export class Issue {
    */
   isInColumn(column: NamedEntity | string): boolean {
     const col = typeof column === 'string' ? this.getColumn(column) : column;
-    if (!col || !this.issueCard) {
+    if (!col || !this.projectCard) {
       return false;
     }
-    return this.issueCard.column.id === col.id;
+
+    return this.projectCard.column.id === col.id;
   }
 
   /**
