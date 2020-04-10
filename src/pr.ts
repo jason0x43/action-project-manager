@@ -71,10 +71,12 @@ export class PullRequest {
   async findLinkedIssues(projectName: string): Promise<Issue[]> {
     // Find all open issues linked to PRs by a closing reference
     const query = `
-      search(query: "linked:pr is:open type:issue repo:${this.repository}", type: ISSUE, first: 50) {
-        nodes {
-          ... on Issue {
-            url
+      {
+        search(query: "linked:pr is:open type:issue repo:${this.repository}", type: ISSUE, first: 50) {
+          nodes {
+            ... on Issue {
+              url
+            }
           }
         }
       }
