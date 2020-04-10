@@ -1700,6 +1700,7 @@ var pr_awaiter = (undefined && undefined.__awaiter) || function (thisArg, _argum
     });
 };
 
+
 class pr_PullRequest {
     constructor(octokit, url) {
         this.octokit = octokit;
@@ -1752,6 +1753,7 @@ class pr_PullRequest {
      */
     findLinkedIssues(projectName) {
         return pr_awaiter(this, void 0, void 0, function* () {
+            Object(core.info)(`Finding issues linked to PR ${this.number}`);
             // Find all open issues linked to PRs by a closing reference
             const query = `
       {
@@ -1768,6 +1770,7 @@ class pr_PullRequest {
             const issueUrls = response.search.nodes.map((node) => node.id);
             const issues = [];
             for (const url of issueUrls) {
+                Object(core.info)(`Loading issue ${url}`);
                 issues.push(yield loadIssue(this.octokit, url, projectName));
             }
             return issues.filter((issue) => issue.projectCard != null &&

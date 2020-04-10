@@ -1,6 +1,7 @@
-import { Entity } from './types';
+import { info } from '@actions/core';
 import { GitHub } from '@actions/github';
 import { Issue, loadIssue } from './issue';
+import { Entity } from './types';
 
 export interface ReferencedIssue extends Entity {
   url: string;
@@ -69,6 +70,8 @@ export class PullRequest {
    * Find all issues in the given project linked to this PR
    */
   async findLinkedIssues(projectName: string): Promise<Issue[]> {
+    info(`Finding issues linked to PR ${this.number}`);
+
     // Find all open issues linked to PRs by a closing reference
     const query = `
       {
@@ -89,6 +92,7 @@ export class PullRequest {
     const issues = [];
 
     for (const url of issueUrls) {
+      info(`Loading issue ${url}`);
       issues.push(await loadIssue(this.octokit, url, projectName));
     }
 
