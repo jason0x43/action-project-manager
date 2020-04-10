@@ -53,6 +53,8 @@ export function getConfig() {
   const config = {
     token: getInput('github-token'),
     projectName: getInput('project'),
+    // If true, automatically add all new issues to the project
+    autoAdd: getInput('auto-add'),
     // Column for new issues
     triageColumnName: getInput('triage-column'),
     // Label that will be applied to triage issues

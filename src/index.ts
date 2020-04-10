@@ -44,113 +44,117 @@ async function main() {
       projectName
     );
 
-    switch (actionInfo.action) {
-      case Action.IssueOpened:
-        info(`Issue ${issue.number} was opened`);
+    if (issue.projectCard || config.autoAdd) {
+      switch (actionInfo.action) {
+        case Action.IssueOpened:
+          info(`Issue ${issue.number} was opened`);
 
-        if (issue.isAssigned()) {
-          info(`Issue ${issue.number} is assigned`);
+          if (issue.isAssigned()) {
+            info(`Issue ${issue.number} is assigned`);
 
-          if (config.workingColumnName) {
-            // If the issue is already assigned, move it to the working column
-            info(`Moving issue ${issue.number} to working column`);
-            await issue.moveToColumn(config.workingColumnName);
-          }
-        } else {
-          info(`Issue ${issue.number} is not assigned`);
-
-          // If we have a triage label, apply it to new issues
-          if (config.triageLabel) {
-            info(`Adding triage label to ${issue.number}`);
-            await issue.addLabel(config.triageLabel);
-          }
-
-          // If we have a triage column, put new issues in it
-          if (config.triageColumnName) {
-            info(`Moving issue ${issue.number} to triage column`);
-            await issue.moveToColumn(config.triageColumnName);
-          }
-        }
-        break;
-
-      case Action.IssueClosed:
-        info(`Issue ${issue.number} was closed`);
-
-        // If an issue is closed, it's done
-        if (config.doneColumnName) {
-          info(`Moving issue ${issue.number} to done column`);
-          await issue.moveToColumn(config.doneColumnName);
-        }
-        break;
-
-      case Action.IssueReopened:
-        info(`Issue ${issue.number} was reopened`);
-
-        // If an issue is reopened and is assigned, it's in progress, otherwise
-        // it's todo
-        if (issue.isAssigned() && config.workingColumnName) {
-          info(`Issue ${issue.number} is assigned; moving to working column`);
-          await issue.moveToColumn(config.workingColumnName);
-        } else if (!issue.isAssigned() && config.todoColumnName) {
-          info(`Issue ${issue.number} is not assigned; moving to todo column`);
-          await issue.moveToColumn(config.todoColumnName);
-        }
-        break;
-
-      case Action.IssueAssignment:
-        info(`Issue ${issue.number} was assigned`);
-
-        // If a triaged or todo issue is assigned, it's in progress
-        if (issue.isAssigned() && config.workingColumnName) {
-          if (
-            (config.todoColumnName &&
-              issue.isInColumn(config.todoColumnName)) ||
-            (config.triageColumnName &&
-              issue.isInColumn(config.triageColumnName))
-          ) {
-            info(`Moving issue ${issue.number} to working column`);
-            await issue.moveToColumn(config.workingColumnName);
-
-            if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
-              info(`Removing triage label from issue ${issue.number}`);
-              await issue.removeLabel(config.triageLabel);
-            }
-          }
-        } else if (!issue.isAssigned() && config.todoColumnName) {
-          info(`Issue ${issue.number} is not assigned`);
-          if (
-            config.workingColumnName &&
-            issue.isInColumn(config.workingColumnName)
-          ) {
-            info(`Moving ${issue.number} to todo column`);
-            await issue.moveToColumn(config.todoColumnName);
-          }
-        }
-        break;
-
-      case Action.IssueLabeling:
-        info(`Issue ${issue.number} was relabeled`);
-
-        if (config.triageLabel) {
-          if (issue.hasLabel(config.triageLabel)) {
-            if (
-              config.triageColumnName &&
-              !issue.isInColumn(config.triageColumnName)
-            ) {
-              info(`Moving ${issue.number} to triage column`);
-              await issue.moveToColumn(config.triageColumnName);
+            if (config.workingColumnName) {
+              // If the issue is already assigned, move it to the working column
+              info(`Moving issue ${issue.number} to working column`);
+              await issue.moveToColumn(config.workingColumnName);
             }
           } else {
+            info(`Issue ${issue.number} is not assigned`);
+
+            // If we have a triage label, apply it to new issues
+            if (config.triageLabel) {
+              info(`Adding triage label to ${issue.number}`);
+              await issue.addLabel(config.triageLabel);
+            }
+
+            // If we have a triage column, put new issues in it
+            if (config.triageColumnName) {
+              info(`Moving issue ${issue.number} to triage column`);
+              await issue.moveToColumn(config.triageColumnName);
+            }
+          }
+          break;
+
+        case Action.IssueClosed:
+          info(`Issue ${issue.number} was closed`);
+
+          // If an issue is closed, it's done
+          if (config.doneColumnName) {
+            info(`Moving issue ${issue.number} to done column`);
+            await issue.moveToColumn(config.doneColumnName);
+          }
+          break;
+
+        case Action.IssueReopened:
+          info(`Issue ${issue.number} was reopened`);
+
+          // If an issue is reopened and is assigned, it's in progress, otherwise
+          // it's todo
+          if (issue.isAssigned() && config.workingColumnName) {
+            info(`Issue ${issue.number} is assigned; moving to working column`);
+            await issue.moveToColumn(config.workingColumnName);
+          } else if (!issue.isAssigned() && config.todoColumnName) {
+            info(
+              `Issue ${issue.number} is not assigned; moving to todo column`
+            );
+            await issue.moveToColumn(config.todoColumnName);
+          }
+          break;
+
+        case Action.IssueAssignment:
+          info(`Issue ${issue.number} was assigned`);
+
+          // If a triaged or todo issue is assigned, it's in progress
+          if (issue.isAssigned() && config.workingColumnName) {
             if (
-              config.todoColumnName &&
-              !issue.isInColumn(config.todoColumnName)
+              (config.todoColumnName &&
+                issue.isInColumn(config.todoColumnName)) ||
+              (config.triageColumnName &&
+                issue.isInColumn(config.triageColumnName))
+            ) {
+              info(`Moving issue ${issue.number} to working column`);
+              await issue.moveToColumn(config.workingColumnName);
+
+              if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                info(`Removing triage label from issue ${issue.number}`);
+                await issue.removeLabel(config.triageLabel);
+              }
+            }
+          } else if (!issue.isAssigned() && config.todoColumnName) {
+            info(`Issue ${issue.number} is not assigned`);
+            if (
+              config.workingColumnName &&
+              issue.isInColumn(config.workingColumnName)
             ) {
               info(`Moving ${issue.number} to todo column`);
               await issue.moveToColumn(config.todoColumnName);
             }
           }
-        }
-        break;
+          break;
+
+        case Action.IssueLabeling:
+          info(`Issue ${issue.number} was relabeled`);
+
+          if (config.triageLabel) {
+            if (issue.hasLabel(config.triageLabel)) {
+              if (
+                config.triageColumnName &&
+                !issue.isInColumn(config.triageColumnName)
+              ) {
+                info(`Moving ${issue.number} to triage column`);
+                await issue.moveToColumn(config.triageColumnName);
+              }
+            } else {
+              if (
+                config.todoColumnName &&
+                !issue.isInColumn(config.todoColumnName)
+              ) {
+                info(`Moving ${issue.number} to todo column`);
+                await issue.moveToColumn(config.todoColumnName);
+              }
+            }
+          }
+          break;
+      }
     }
   } else {
     info(`Processing a PR event: ${context.payload.action}`);

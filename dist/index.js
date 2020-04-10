@@ -1854,6 +1854,8 @@ function getConfig() {
     const config = {
         token: Object(core.getInput)('github-token'),
         projectName: Object(core.getInput)('project'),
+        // If true, automatically add all new issues to the project
+        autoAdd: Object(core.getInput)('auto-add'),
         // Column for new issues
         triageColumnName: Object(core.getInput)('triage-column'),
         // Label that will be applied to triage issues
@@ -1924,96 +1926,98 @@ function main() {
         if (actionInfo.actionType === ActionType.Issue) {
             Object(core.info)(`Processing an issue event: ${github.context.payload.action}`);
             const issue = yield loadIssue(octokit, github.context.payload.issue.html_url, projectName);
-            switch (actionInfo.action) {
-                case Action.IssueOpened:
-                    Object(core.info)(`Issue ${issue.number} was opened`);
-                    if (issue.isAssigned()) {
-                        Object(core.info)(`Issue ${issue.number} is assigned`);
-                        if (config.workingColumnName) {
-                            // If the issue is already assigned, move it to the working column
-                            Object(core.info)(`Moving issue ${issue.number} to working column`);
-                            yield issue.moveToColumn(config.workingColumnName);
-                        }
-                    }
-                    else {
-                        Object(core.info)(`Issue ${issue.number} is not assigned`);
-                        // If we have a triage label, apply it to new issues
-                        if (config.triageLabel) {
-                            Object(core.info)(`Adding triage label to ${issue.number}`);
-                            yield issue.addLabel(config.triageLabel);
-                        }
-                        // If we have a triage column, put new issues in it
-                        if (config.triageColumnName) {
-                            Object(core.info)(`Moving issue ${issue.number} to triage column`);
-                            yield issue.moveToColumn(config.triageColumnName);
-                        }
-                    }
-                    break;
-                case Action.IssueClosed:
-                    Object(core.info)(`Issue ${issue.number} was closed`);
-                    // If an issue is closed, it's done
-                    if (config.doneColumnName) {
-                        Object(core.info)(`Moving issue ${issue.number} to done column`);
-                        yield issue.moveToColumn(config.doneColumnName);
-                    }
-                    break;
-                case Action.IssueReopened:
-                    Object(core.info)(`Issue ${issue.number} was reopened`);
-                    // If an issue is reopened and is assigned, it's in progress, otherwise
-                    // it's todo
-                    if (issue.isAssigned() && config.workingColumnName) {
-                        Object(core.info)(`Issue ${issue.number} is assigned; moving to working column`);
-                        yield issue.moveToColumn(config.workingColumnName);
-                    }
-                    else if (!issue.isAssigned() && config.todoColumnName) {
-                        Object(core.info)(`Issue ${issue.number} is not assigned; moving to todo column`);
-                        yield issue.moveToColumn(config.todoColumnName);
-                    }
-                    break;
-                case Action.IssueAssignment:
-                    Object(core.info)(`Issue ${issue.number} was assigned`);
-                    // If a triaged or todo issue is assigned, it's in progress
-                    if (issue.isAssigned() && config.workingColumnName) {
-                        if ((config.todoColumnName &&
-                            issue.isInColumn(config.todoColumnName)) ||
-                            (config.triageColumnName &&
-                                issue.isInColumn(config.triageColumnName))) {
-                            Object(core.info)(`Moving issue ${issue.number} to working column`);
-                            yield issue.moveToColumn(config.workingColumnName);
-                            if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
-                                Object(core.info)(`Removing triage label from issue ${issue.number}`);
-                                yield issue.removeLabel(config.triageLabel);
-                            }
-                        }
-                    }
-                    else if (!issue.isAssigned() && config.todoColumnName) {
-                        Object(core.info)(`Issue ${issue.number} is not assigned`);
-                        if (config.workingColumnName &&
-                            issue.isInColumn(config.workingColumnName)) {
-                            Object(core.info)(`Moving ${issue.number} to todo column`);
-                            yield issue.moveToColumn(config.todoColumnName);
-                        }
-                    }
-                    break;
-                case Action.IssueLabeling:
-                    Object(core.info)(`Issue ${issue.number} was relabeled`);
-                    if (config.triageLabel) {
-                        if (issue.hasLabel(config.triageLabel)) {
-                            if (config.triageColumnName &&
-                                !issue.isInColumn(config.triageColumnName)) {
-                                Object(core.info)(`Moving ${issue.number} to triage column`);
-                                yield issue.moveToColumn(config.triageColumnName);
+            if (issue.projectCard || config.autoAdd) {
+                switch (actionInfo.action) {
+                    case Action.IssueOpened:
+                        Object(core.info)(`Issue ${issue.number} was opened`);
+                        if (issue.isAssigned()) {
+                            Object(core.info)(`Issue ${issue.number} is assigned`);
+                            if (config.workingColumnName) {
+                                // If the issue is already assigned, move it to the working column
+                                Object(core.info)(`Moving issue ${issue.number} to working column`);
+                                yield issue.moveToColumn(config.workingColumnName);
                             }
                         }
                         else {
-                            if (config.todoColumnName &&
-                                !issue.isInColumn(config.todoColumnName)) {
+                            Object(core.info)(`Issue ${issue.number} is not assigned`);
+                            // If we have a triage label, apply it to new issues
+                            if (config.triageLabel) {
+                                Object(core.info)(`Adding triage label to ${issue.number}`);
+                                yield issue.addLabel(config.triageLabel);
+                            }
+                            // If we have a triage column, put new issues in it
+                            if (config.triageColumnName) {
+                                Object(core.info)(`Moving issue ${issue.number} to triage column`);
+                                yield issue.moveToColumn(config.triageColumnName);
+                            }
+                        }
+                        break;
+                    case Action.IssueClosed:
+                        Object(core.info)(`Issue ${issue.number} was closed`);
+                        // If an issue is closed, it's done
+                        if (config.doneColumnName) {
+                            Object(core.info)(`Moving issue ${issue.number} to done column`);
+                            yield issue.moveToColumn(config.doneColumnName);
+                        }
+                        break;
+                    case Action.IssueReopened:
+                        Object(core.info)(`Issue ${issue.number} was reopened`);
+                        // If an issue is reopened and is assigned, it's in progress, otherwise
+                        // it's todo
+                        if (issue.isAssigned() && config.workingColumnName) {
+                            Object(core.info)(`Issue ${issue.number} is assigned; moving to working column`);
+                            yield issue.moveToColumn(config.workingColumnName);
+                        }
+                        else if (!issue.isAssigned() && config.todoColumnName) {
+                            Object(core.info)(`Issue ${issue.number} is not assigned; moving to todo column`);
+                            yield issue.moveToColumn(config.todoColumnName);
+                        }
+                        break;
+                    case Action.IssueAssignment:
+                        Object(core.info)(`Issue ${issue.number} was assigned`);
+                        // If a triaged or todo issue is assigned, it's in progress
+                        if (issue.isAssigned() && config.workingColumnName) {
+                            if ((config.todoColumnName &&
+                                issue.isInColumn(config.todoColumnName)) ||
+                                (config.triageColumnName &&
+                                    issue.isInColumn(config.triageColumnName))) {
+                                Object(core.info)(`Moving issue ${issue.number} to working column`);
+                                yield issue.moveToColumn(config.workingColumnName);
+                                if (config.triageLabel && issue.hasLabel(config.triageLabel)) {
+                                    Object(core.info)(`Removing triage label from issue ${issue.number}`);
+                                    yield issue.removeLabel(config.triageLabel);
+                                }
+                            }
+                        }
+                        else if (!issue.isAssigned() && config.todoColumnName) {
+                            Object(core.info)(`Issue ${issue.number} is not assigned`);
+                            if (config.workingColumnName &&
+                                issue.isInColumn(config.workingColumnName)) {
                                 Object(core.info)(`Moving ${issue.number} to todo column`);
                                 yield issue.moveToColumn(config.todoColumnName);
                             }
                         }
-                    }
-                    break;
+                        break;
+                    case Action.IssueLabeling:
+                        Object(core.info)(`Issue ${issue.number} was relabeled`);
+                        if (config.triageLabel) {
+                            if (issue.hasLabel(config.triageLabel)) {
+                                if (config.triageColumnName &&
+                                    !issue.isInColumn(config.triageColumnName)) {
+                                    Object(core.info)(`Moving ${issue.number} to triage column`);
+                                    yield issue.moveToColumn(config.triageColumnName);
+                                }
+                            }
+                            else {
+                                if (config.todoColumnName &&
+                                    !issue.isInColumn(config.todoColumnName)) {
+                                    Object(core.info)(`Moving ${issue.number} to todo column`);
+                                    yield issue.moveToColumn(config.todoColumnName);
+                                }
+                            }
+                        }
+                        break;
+                }
             }
         }
         else {
