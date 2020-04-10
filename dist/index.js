@@ -1767,7 +1767,7 @@ class pr_PullRequest {
       }
     `;
             const response = yield this.octokit.graphql(query);
-            const issueUrls = response.search.nodes.map((node) => node.id);
+            const issueUrls = response.search.nodes.map((node) => node.url);
             const issues = [];
             for (const url of issueUrls) {
                 Object(core.info)(`Loading issue ${url}`);

@@ -87,7 +87,7 @@ export class PullRequest {
 
     const response = await this.octokit.graphql(query);
     const issueUrls: string[] = response!.search.nodes.map(
-      (node: any) => node.id
+      (node: any) => node.url
     );
     const issues = [];
 
