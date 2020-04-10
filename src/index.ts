@@ -198,7 +198,8 @@ async function main() {
             config.workingColumnName &&
             issue.isInColumn(config.workingColumnName) &&
             config.todoColumnName &&
-            !issue.isAssigned()
+            !issue.isAssigned() &&
+            !issue.linkedPrs.some(pr => !pr.closed)
           ) {
             info(`Moving issue ${issue.number} to todo column`);
             await issue.moveToColumn(config.todoColumnName);

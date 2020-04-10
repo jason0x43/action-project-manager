@@ -2051,7 +2051,8 @@ function main() {
                         if (config.workingColumnName &&
                             issue.isInColumn(config.workingColumnName) &&
                             config.todoColumnName &&
-                            !issue.isAssigned()) {
+                            !issue.isAssigned() &&
+                            !issue.linkedPrs.some(pr => !pr.closed)) {
                             Object(core.info)(`Moving issue ${issue.number} to todo column`);
                             yield issue.moveToColumn(config.todoColumnName);
                         }
